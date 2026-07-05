@@ -1,0 +1,47 @@
+# ==========================================
+# Secret Configurations & Keys
+# ==========================================
+.env
+.env.local
+.env.*.local
+
+# ==========================================
+# Project Layout Storage (Local Scraper Hubs)
+# ==========================================
+data/
+logs/
+test_data/
+tests/
+# Except headers or configuration examples if you want to keep data/ structure intact
+!data/.gitkeep
+!logs/.gitkeep
+
+# ==========================================
+# Python Artifacts & Caches
+# ==========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+
+# ==========================================
+# Virtual Environments
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================================
+# Operating System & IDE Artifacts
+# ==========================================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
