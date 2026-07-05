@@ -1,9 +1,9 @@
-# PSE Edge ETL Pipeline — Philippine Stock Exchange Data Scraper & Analyzer
+# PSE Edge ETL Pipeline Philippine Stock Exchange Data Scraper & Analyzer
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A modular ETL (Extract, Transform, Load) pipeline that scrapes, parses, and analyzes financial data from the Philippine Stock Exchange (PSE) Edge portal. Built for **educational and personal Value Investing research**, this tool extracts company fundamentals, stock data, dividends, and historical disclosures—then generates comprehensive investment reports with growth metrics, ratios, and visualizations.
+A modular ETL (Extract, Transform, Load) pipeline that scrapes, parses, and analyzes financial data from the Philippine Stock Exchange (PSE) Edge portal. Built for **educational and personal Value Investing research**, this tool extracts company fundamentals, stock data, dividends, and historical disclosures that then generates comprehensive investment reports with growth metrics, ratios, and visualizations.
 
 > 📌 **Important**: This tool is for educational research only. Please review the [Disclaimer](DISCLAIMER.md) before use.
 
