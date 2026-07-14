@@ -1,0 +1,546 @@
+@import "tailwindcss";
+
+@theme {
+  /* Color Registry */
+  --color-nier-bg: #dcd8c0;
+  --color-nier-dark: #4b4637;
+  --color-nier-dark-muted: #575141;
+  --color-nier-light: #efebd6;
+  --color-nier-gray: #bab49c;
+  --color-nier-orange: #ab9d72;
+
+  /* Typography */
+  --font-nier: 'Arial', 'Helvetica', 'sans-serif';
+
+  /* Animations */
+  --animate-fade-in: fade-in 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+/* ==========================================================================
+   GLOBAL RESETS
+   ========================================================================== */
+body {
+  margin: 0;
+  background-color: var(--color-nier-bg);
+  color: var(--color-nier-dark);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-nier-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-nier-dark);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-nier-dark-muted);
+}
+
+/* ==========================================================================
+   REUSABLE UI COMPONENTS (Tailwind utility‑based)
+   ========================================================================== */
+.nier-btn {
+  @apply border border-nier-dark px-6 py-2.5 uppercase tracking-widest text-xs font-bold rounded-none transition-colors duration-150;
+}
+.nier-btn:hover:not(:disabled) {
+  @apply bg-nier-dark text-nier-bg;
+}
+.nier-btn:disabled {
+  @apply opacity-30 pointer-events-none;
+}
+
+.nier-input {
+  @apply bg-transparent border border-nier-gray focus:border-nier-dark focus:outline-none p-3 rounded-none uppercase text-xs tracking-widest transition-colors;
+}
+
+/* Double‑border panel – used directly in JSX */
+.nier-outer-box {
+  @apply border-2 border-nier-dark p-1 bg-transparent rounded-none;
+}
+.nier-inner-box {
+  @apply border border-nier-dark h-full bg-nier-light/40 relative flex flex-col;
+}
+
+/* Table styles */
+.nier-table-container {
+  @apply border border-nier-dark bg-transparent rounded-none overflow-x-auto p-0.5;
+}
+.nier-table {
+  @apply w-full text-left border-collapse cursor-pointer;
+}
+.nier-table th {
+  @apply bg-nier-dark text-nier-bg uppercase tracking-widest text-xs p-4 font-bold;
+}
+.nier-table td {
+  @apply p-4 text-xs tracking-wider uppercase border-b border-nier-gray/30 transition-colors duration-150;
+}
+
+/* ==========================================================================
+   LAYOUT & STRUCTURAL COMPONENTS (no nested @apply of custom classes)
+   ========================================================================== */
+
+/* Header bar – shared between App and CompanyTable */
+.nier-header-bar {
+  @apply flex justify-between items-center border-b-2 border-nier-dark pb-2 mb-8 uppercase tracking-widest text-sm font-bold;
+}
+.nier-dashboard-header {
+  @apply w-full flex flex-col lg:flex-row lg:justify-between lg:items-center border-b-2 border-nier-dark pb-3 mb-8 gap-4;
+}
+
+/* Landing page hero */
+.nier-landing-hero {
+  @apply max-w-2xl mx-auto flex flex-col gap-6 text-center lg:text-left my-auto;
+}
+
+/* Main two‑column grid */
+.nier-dashboard-grid {
+  @apply grid grid-cols-1 lg:grid-cols-3 gap-8 items-start;
+}
+
+/* Left column (table + search + pagination) */
+.nier-table-column {
+  @apply lg:col-span-2 flex flex-col gap-6;
+}
+
+/* Right column – we apply nier-outer-box directly in JSX, so no nesting here */
+.nier-detail-column {
+  @apply lg:col-span-1 min-h-[500px];   /* use arbitrary value */
+}
+
+/* Search form */
+.nier-search-form {
+  @apply flex gap-2;
+}
+
+/* Pagination bar */
+.nier-pagination-bar {
+  @apply flex justify-between items-center mt-2;
+}
+
+/* Data blocks inside the detail panel */
+.nier-data-block {
+  @apply border border-nier-dark bg-nier-bg/70 p-4 rounded-none;
+}
+.nier-data-block-title {
+  @apply text-[10px] uppercase tracking-widest font-bold text-nier-dark/80 mb-3 border-b border-dotted border-nier-dark/40 pb-1;
+}
+.nier-data-list {
+  @apply flex flex-col gap-4 max-h-40 overflow-y-auto pr-1;
+}
+.nier-data-item {
+  @apply text-xs font-mono tracking-wider flex flex-col gap-1 border-b border-nier-gray/20 pb-2 last:border-0 last:pb-0;
+}
+
+/* Inner detail content */
+.nier-detail-content {
+  @apply flex flex-col gap-6;
+}
+
+/* ==========================================================================
+   FUNDAMENTAL REPORT ONE-PAGER (Nier theme, PDF-inspired layout)
+   ========================================================================== */
+.report-page {
+  min-height: 100vh;
+  background: var(--color-nier-bg);
+  color: var(--color-nier-dark);
+  font-family: var(--font-nier);
+  padding: 16px 20px 28px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.report-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.report-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-bottom: 2px solid var(--color-nier-dark);
+  padding-bottom: 8px;
+}
+
+.report-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-unit {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.report-date {
+  font-weight: 600;
+  color: var(--color-nier-orange);
+}
+
+.report-back {
+  border: 1px solid var(--color-nier-dark);
+  background: transparent;
+  color: var(--color-nier-dark);
+  padding: 4px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.report-back:hover {
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+}
+
+.report-title-bar {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  border: 2px solid var(--color-nier-dark);
+  margin: 10px 0 6px;
+  background: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
+}
+
+.report-ticker {
+  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 8px 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  color: var(--color-nier-orange);
+}
+
+.report-mcap {
+  border-left: 2px solid var(--color-nier-dark);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.report-mcap-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.report-mcap-value {
+  font-size: 1.75rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.report-name-line {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  margin-bottom: 10px;
+}
+
+.report-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  border-bottom: 1px solid var(--color-nier-dark);
+  margin-bottom: 8px;
+  padding-bottom: 2px;
+}
+
+.report-grid-charts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.report-chart-card {
+  border: 1px solid var(--color-nier-dark);
+  padding: 6px 8px 4px;
+  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  min-height: 160px;
+}
+
+.report-chart-title {
+  font-size: 10px;
+  font-weight: 700;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.report-chart-empty {
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-nier-gray);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.report-side-panel {
+  border: 1px solid var(--color-nier-dark);
+  padding: 10px;
+  background: color-mix(in srgb, var(--color-nier-light) 45%, transparent);
+}
+
+.report-panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.report-panel-title.light {
+  color: var(--color-nier-light);
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.report-table th,
+.report-table td {
+  border: 1px solid var(--color-nier-gray);
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.report-table th {
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+  font-weight: 700;
+}
+
+.report-table td.num,
+.report-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.report-note {
+  margin-top: 10px;
+  font-size: 10px;
+  color: var(--color-nier-dark-muted);
+  line-height: 1.35;
+  letter-spacing: 0.04em;
+}
+
+.report-bottom-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1.2fr 0.9fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.report-snapshot-block {
+  border: 2px solid var(--color-nier-dark);
+  background: var(--color-nier-dark);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.report-snapshot-block .report-chart-card {
+  background: var(--color-nier-bg);
+}
+
+.report-div-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report-checklist {
+  border: 1px solid var(--color-nier-dark);
+  padding: 10px;
+  background: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
+}
+
+.report-check-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+.report-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
+}
+
+.report-check-box {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--color-nier-dark);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.report-check-pass {
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+}
+
+.report-check-fail {
+  background: color-mix(in srgb, var(--color-nier-orange) 35%, var(--color-nier-bg));
+  color: var(--color-nier-dark);
+}
+
+.report-check-na {
+  background: var(--color-nier-gray);
+  color: var(--color-nier-dark);
+  font-size: 8px;
+}
+
+.report-valuation {
+  border: 1px solid var(--color-nier-dark);
+  padding: 10px;
+  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-yield-block {
+  border-bottom: 1px dotted var(--color-nier-dark);
+  padding-bottom: 10px;
+}
+
+.report-yield-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.report-yield-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  margin: 4px 0 8px;
+  color: var(--color-nier-orange);
+}
+
+.report-cover-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.report-cover-badge {
+  padding: 6px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  border: 1px solid var(--color-nier-dark);
+}
+
+.report-cover-badge.status-good {
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+}
+
+.report-cover-badge.status-weak {
+  background: var(--color-nier-orange);
+  color: var(--color-nier-dark);
+}
+
+.report-cover-badge.status-na {
+  background: var(--color-nier-gray);
+  color: var(--color-nier-dark);
+}
+
+.report-footer {
+  border-top: 2px solid var(--color-nier-dark);
+  padding-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.report-note-block {
+  border: 1px dashed var(--color-nier-gray);
+  padding: 6px 8px;
+  font-size: 11px;
+  min-height: 36px;
+  background: color-mix(in srgb, var(--color-nier-light) 30%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.report-disclaimer {
+  font-size: 9px;
+  color: var(--color-nier-dark-muted);
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+}
+
+@media (max-width: 1024px) {
+  .report-grid-charts,
+  .report-bottom-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-title-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .report-mcap {
+    border-left: none;
+    border-top: 2px solid var(--color-nier-dark);
+  }
+}
+
+@media (max-width: 640px) {
+  .report-grid-charts,
+  .report-bottom-grid,
+  .report-check-cols {
+    grid-template-columns: 1fr;
+  }
+}
