@@ -6,7 +6,7 @@ export default function RegistryPreview({ company, status, onOpen, onClear }) {
     return (
       <div className="nier-outer-box h-full">
         <div className="nier-inner-box p-4">
-          <p className="text-xs uppercase tracking-widest opacity-60 py-8 text-center">
+          <p className="text-xs uppercase tracking-widest opacity-60 py-8 text-center" role="status" aria-live="polite">
             LOADING_RECORD_PREVIEW...
           </p>
         </div>
@@ -18,7 +18,7 @@ export default function RegistryPreview({ company, status, onOpen, onClear }) {
     return (
       <div className="nier-outer-box h-full">
         <div className="nier-inner-box p-4">
-          <p className="text-xs uppercase tracking-widest text-nier-orange py-8 text-center">
+          <p className="text-xs uppercase tracking-widest text-nier-orange py-8 text-center" role="alert">
             PREVIEW_RETRIEVAL_FAILURE
           </p>
         </div>
@@ -44,13 +44,13 @@ export default function RegistryPreview({ company, status, onOpen, onClear }) {
   const report = buildReport(company);
 
   return (
-    <div className="nier-outer-box h-full">
+    <aside className="nier-outer-box h-full" aria-label={`Preview ${report.displayTicker}`}>
       <div className="nier-inner-box p-4 flex flex-col gap-4">
         <div className="flex justify-between items-start gap-2 border-b border-nier-dark/30 pb-3">
           <div className="min-w-0">
-            <div className="text-2xl font-extrabold text-nier-orange tracking-wide">
+            <h2 className="text-2xl font-extrabold text-nier-orange tracking-wide m-0">
               {report.displayTicker}
-            </div>
+            </h2>
             <div className="text-[10px] uppercase tracking-wider opacity-75 mt-1 leading-snug">
               {report.companyName}
             </div>
@@ -79,6 +79,6 @@ export default function RegistryPreview({ company, status, onOpen, onClear }) {
           )}
         </div>
       </div>
-    </div>
+    </aside>
   );
 }

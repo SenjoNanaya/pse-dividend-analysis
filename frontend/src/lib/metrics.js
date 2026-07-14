@@ -121,9 +121,52 @@ export function dividendsByYear(dividends = []) {
     .map(([year, value]) => ({ year, value }));
 }
 
+/** Strict TTM common cash DPS ending at asOf (default: today). No older-year fallback. */
+export function trailingAnnualDividend(dividends = [], asOf = null, windowDays = 365) {
+  const rows = [];
+  for (const d of dedupeDividends(dividends)) {
+    if (!isCommonDividend(d) || !isCashDividend(d)) continue;
+    const amount = safeNum(d.amount);
+    const ex = parseExDate(d.ex_date);
+    if (amount == null || !ex) continue;
+    rows.push({ ex, amount });
+  }
+  if (!rows.length) return null;
+
+  const end = asOf ? parseExDate(asOf) : new Date();
+  if (!end || Number.isNaN(end.getTime())) return null;
+  // Normalize to UTC midnight for stable day windows
+  const endUtc = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+  const startUtc = new Date(endUtc);
+  startUtc.setUTCDate(startUtc.getUTCDate() - windowDays);
+
+  let ttm = 0;
+  for (const { ex, amount } of rows) {
+    if (ex > startUtc && ex <= endUtc) ttm += amount;
+  }
+  return ttm > 0 ? ttm : null;
+}
+
+export function computeDivYield(price, dividends = [], asOf = null) {
+  const p = safeNum(price);
+  if (p == null || p <= 0) return null;
+  const annual = trailingAnnualDividend(dividends, asOf);
+  if (annual == null || annual <= 0) return null;
+  return annual / p;
+}
+
+function parseExDate(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const text = String(value).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+  const d = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function isCashDividend(d) {
   const dtype = String(d.type || 'cash').trim().toLowerCase();
-  return !dtype || dtype === 'cash';
+  return dtype === 'cash' || dtype === '';
 }
 
 function isCommonDividend(d) {
@@ -241,20 +284,21 @@ export function buildReport(company) {
   const roe = roeScraped ?? roeComputed;
 
   const latestYear = latest?.fiscal_year != null ? String(latest.fiscal_year) : null;
-  const divInLatestYear = latestYear
-    ? (divSeries.find((d) => d.year === latestYear)?.value ?? 0)
-    : 0;
-  const computedDivYield = price && divInLatestYear ? divInLatestYear / price : null;
+  const annualDps = trailingAnnualDividend(dividends);
+  const computedDivYield = price && annualDps ? annualDps / price : null;
   const divYield = safeNum(company.div_yield) ?? computedDivYield;
   const totalDivPaid =
-    shares != null && divInLatestYear ? divInLatestYear * shares : null;
+    shares != null && annualDps ? annualDps * shares : null;
   const divCover =
     totalDivPaid && netIncome != null && totalDivPaid !== 0
       ? netIncome / totalDivPaid
       : null;
 
-  // Rough 3Y average yield from annual dividend totals / current price
-  const recentDivYears = divSeries.slice(-3);
+  // 3Y avg uses completed calendar years only — skip the current year
+  // (it may not have all quarterly filings yet). Current run-rate = TTM yield.
+  const thisCalendarYear = String(new Date().getUTCFullYear());
+  const completedDivYears = divSeries.filter((d) => d.year < thisCalendarYear);
+  const recentDivYears = completedDivYears.slice(-3);
   const avgDivPerShare =
     recentDivYears.length > 0
       ? recentDivYears.reduce((s, d) => s + d.value, 0) / recentDivYears.length

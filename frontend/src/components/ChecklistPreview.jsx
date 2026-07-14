@@ -3,16 +3,19 @@ import { buildReport, checklistScore, evaluableChecklist, formatPct } from '../l
 export function CheckCell({ item, compact = false }) {
   let mark = 'NA';
   let cls = 'report-check-na';
+  let state = 'Not available';
   if (item.pass === true) {
     mark = '✓';
     cls = 'report-check-pass';
+    state = 'Pass';
   } else if (item.pass === false) {
     mark = '✗';
     cls = 'report-check-fail';
+    state = 'Fail';
   }
   return (
     <div className={`report-check-row${compact ? ' report-check-row-compact' : ''}`}>
-      <span className={`report-check-box ${cls}`}>{mark}</span>
+      <span className={`report-check-box ${cls}`} aria-label={state}>{mark}</span>
       <span>{item.label}</span>
     </div>
   );

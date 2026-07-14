@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import CompareChart, { COMPARE_CHART_DEFS } from './CompareChart';
 import {
   buildReport,
   formatMarketCap,
@@ -24,6 +25,12 @@ function passMark(pass) {
   return '—';
 }
 
+function passLabel(pass) {
+  if (pass === true) return 'Pass';
+  if (pass === false) return 'Fail';
+  return 'Not available';
+}
+
 function bestIndex(values, prefer = 'max') {
   let best = null;
   let bestIdx = -1;
@@ -43,6 +50,7 @@ function bestIndex(values, prefer = 'max') {
 function CompareCell({ children, best = false }) {
   return (
     <td className={best ? 'compare-cell compare-cell--best' : 'compare-cell'}>
+      {best && <span className="sr-only">Best: </span>}
       {children}
     </td>
   );
@@ -52,6 +60,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
   const [reports, setReports] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
+  const [panel, setPanel] = useState('both'); // metrics | charts | both
 
   const pickKey = picks.map((p) => p.id).join(',');
 
@@ -90,7 +99,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
 
   if (status === 'loading' || status === 'idle') {
     return (
-      <div className="compare-page compare-loading">
+      <div className="compare-page compare-loading" role="status" aria-live="polite">
         LOADING_COMPARE_MATRIX...
       </div>
     );
@@ -98,7 +107,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
 
   if (status === 'error') {
     return (
-      <div className="compare-page compare-loading">
+      <div className="compare-page compare-loading" role="alert">
         <p>COMPARE_RETRIEVAL_FAILURE: {error}</p>
         <button type="button" className="nier-btn mt-4" onClick={onBack}>
           &lt; REGISTRY
@@ -120,20 +129,64 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
   const asCagrBest = bestIndex(reports.map((r) => r.growth.assets), 'max');
 
   const checkLabels = reports[0]?.checklist?.map((c) => c.label) || [];
+  const showMetrics = panel === 'metrics' || panel === 'both';
+  const showCharts = panel === 'charts' || panel === 'both';
 
   return (
     <div className="compare-page animate-fade-in">
       <header className="compare-topbar">
-        <div className="flex items-center gap-3">
-          <button type="button" className="nier-btn px-3 py-1 text-xs" onClick={onBack}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <button type="button" className="nier-btn" onClick={onBack}>
             &lt; REGISTRY
           </button>
-          <h1 className="nier-title text-sm tracking-[0.18em]">
+          <h1 className="nier-title compare-heading">
             COMPARE_MATRIX
           </h1>
         </div>
-        <div className="text-xs tracking-widest uppercase font-medium opacity-70">
-          [ {reports.length} UNITS ]
+        <div
+          className="compare-panel-toggle"
+          role="tablist"
+          aria-label="Compare view mode"
+          onKeyDown={(e) => {
+            const order = ['metrics', 'charts', 'both'];
+            const idx = order.indexOf(panel);
+            let next = null;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+              next = order[(idx + 1) % order.length];
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+              next = order[(idx - 1 + order.length) % order.length];
+            } else if (e.key === 'Home') {
+              next = order[0];
+            } else if (e.key === 'End') {
+              next = order[order.length - 1];
+            }
+            if (!next) return;
+            e.preventDefault();
+            setPanel(next);
+            requestAnimationFrame(() => {
+              document.getElementById(`compare-tab-${next}`)?.focus();
+            });
+          }}
+        >
+          {[
+            { id: 'metrics', label: 'METRICS', controls: 'compare-panel-metrics' },
+            { id: 'charts', label: 'CHARTS', controls: 'compare-panel-charts' },
+            { id: 'both', label: 'BOTH', controls: 'compare-panel-metrics compare-panel-charts' },
+          ].map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              id={`compare-tab-${opt.id}`}
+              role="tab"
+              aria-selected={panel === opt.id}
+              aria-controls={opt.controls}
+              tabIndex={panel === opt.id ? 0 : -1}
+              className={panel === opt.id ? 'nier-btn compare-tab-active' : 'nier-btn'}
+              onClick={() => setPanel(opt.id)}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </header>
 
@@ -163,150 +216,184 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
           ))}
         </div>
 
-        <div className="compare-table-wrap">
-          <table className="compare-table">
-            <thead>
-              <tr>
-                <th>METRIC</th>
-                {reports.map((r) => (
-                  <th key={r.companyId}>{r.displayTicker}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-            <tr>
-              <td>Price</td>
-              {reports.map((r) => (
-                <CompareCell key={r.companyId}>{formatPrice(r.price)}</CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Market Cap</td>
-              {reports.map((r) => {
-                const tier = r.capTier || marketCapTier(r.marketCap);
-                return (
-                  <CompareCell key={r.companyId}>
-                    <span className="font-mono">{formatMarketCap(r.marketCap)}</span>
-                    {tier && (
-                      <span className={`nier-cap-tier nier-cap-tier--${tier.toLowerCase()}`}>
-                        {tier}
-                      </span>
-                    )}
-                  </CompareCell>
-                );
-              })}
-            </tr>
-            <tr>
-              <td>Div Yield</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === yieldBest}>
-                  {formatPct(r.divYield)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>P/E</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === peBest}>
-                  {formatRatio(r.ratios.pe)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>P/B</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === pbBest}>
-                  {formatRatio(r.ratios.pb)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>ROE</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === roeBest}>
-                  {formatPct(r.ratios.roe)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Checks</td>
-              {reports.map((r, i) => {
-                const score = r.checklistScore;
-                const label =
-                  score != null ? `${score.pass}/${score.total}` : '—';
-                return (
-                  <CompareCell key={r.companyId} best={i === checksBest}>
-                    {label}
-                    {r.passesScreen ? ' ✓' : ''}
-                  </CompareCell>
-                );
-              })}
-            </tr>
-            <tr>
-              <td>BV CAGR</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === bvCagrBest}>
-                  {formatPct(r.growth.bookValue)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Income CAGR</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === niCagrBest}>
-                  {formatPct(r.growth.income)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Assets CAGR</td>
-              {reports.map((r, i) => (
-                <CompareCell key={r.companyId} best={i === asCagrBest}>
-                  {formatPct(r.growth.assets)}
-                </CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Sector</td>
-              {reports.map((r) => (
-                <CompareCell key={r.companyId}>{r.sector || '—'}</CompareCell>
-              ))}
-            </tr>
-            <tr>
-              <td>Subsector</td>
-              {reports.map((r) => (
-                <CompareCell key={r.companyId}>{r.subsector || '—'}</CompareCell>
-              ))}
-            </tr>
+        {showMetrics && (
+          <div
+            id="compare-panel-metrics"
+            role="tabpanel"
+            aria-labelledby={panel === 'both' ? 'compare-tab-both' : 'compare-tab-metrics'}
+          >
+            <div className="compare-section-label">Metric Matrix</div>
+            <div className="compare-table-wrap">
+              <table className="compare-table">
+                <thead>
+                  <tr>
+                    <th scope="col">METRIC</th>
+                    {reports.map((r) => (
+                      <th scope="col" key={r.companyId}>{r.displayTicker}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">Price</th>
+                    {reports.map((r) => (
+                      <CompareCell key={r.companyId}>{formatPrice(r.price)}</CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Market Cap</th>
+                    {reports.map((r) => {
+                      const tier = r.capTier || marketCapTier(r.marketCap);
+                      return (
+                        <CompareCell key={r.companyId}>
+                          <span>{formatMarketCap(r.marketCap)}</span>
+                          {tier && (
+                            <span className={`nier-cap-tier nier-cap-tier--${tier.toLowerCase()}`}>
+                              {tier}
+                            </span>
+                          )}
+                        </CompareCell>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <th scope="row">Div Yield</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === yieldBest}>
+                        {formatPct(r.divYield)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">P/E</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === peBest}>
+                        {formatRatio(r.ratios.pe)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">P/B</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === pbBest}>
+                        {formatRatio(r.ratios.pb)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">ROE</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === roeBest}>
+                        {formatPct(r.ratios.roe)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Checks</th>
+                    {reports.map((r, i) => {
+                      const score = r.checklistScore;
+                      const label =
+                        score != null ? `${score.pass}/${score.total}` : '—';
+                      return (
+                        <CompareCell key={r.companyId} best={i === checksBest}>
+                          {label}
+                          {r.passesScreen ? ' ✓' : ''}
+                        </CompareCell>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <th scope="row">BV CAGR</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === bvCagrBest}>
+                        {formatPct(r.growth.bookValue)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Income CAGR</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === niCagrBest}>
+                        {formatPct(r.growth.income)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Assets CAGR</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === asCagrBest}>
+                        {formatPct(r.growth.assets)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Sector</th>
+                    {reports.map((r) => (
+                      <CompareCell key={r.companyId}>{r.sector || '—'}</CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Subsector</th>
+                    {reports.map((r) => (
+                      <CompareCell key={r.companyId}>{r.subsector || '—'}</CompareCell>
+                    ))}
+                  </tr>
 
-            {checkLabels.map((label, rowIdx) => (
-              <tr key={label} className="compare-check-row">
-                <td>{label}</td>
-                {reports.map((r) => (
-                  <CompareCell key={r.companyId}>
-                    <span
-                      className={
-                        r.checklist[rowIdx]?.pass === true
-                          ? 'compare-pass'
-                          : r.checklist[rowIdx]?.pass === false
-                            ? 'compare-fail'
-                            : 'compare-na'
-                      }
-                    >
-                      {passMark(r.checklist[rowIdx]?.pass)}
-                    </span>
-                  </CompareCell>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  {checkLabels.map((label, rowIdx) => (
+                    <tr key={label} className="compare-check-row">
+                      <th scope="row">{label}</th>
+                      {reports.map((r) => (
+                        <CompareCell key={r.companyId}>
+                          <span
+                            className={
+                              r.checklist[rowIdx]?.pass === true
+                                ? 'compare-pass'
+                                : r.checklist[rowIdx]?.pass === false
+                                  ? 'compare-fail'
+                                  : 'compare-na'
+                            }
+                            aria-label={passLabel(r.checklist[rowIdx]?.pass)}
+                          >
+                            {passMark(r.checklist[rowIdx]?.pass)}
+                          </span>
+                        </CompareCell>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="compare-note">
+              Orange highlight = best among the set (lowest P/E &amp; P/B; highest yield, ROE, checks, CAGRs).
+              Click a ticker to open its full record.
+            </p>
+          </div>
+        )}
 
-      <p className="compare-note">
-        Orange highlight = best among the set (lowest P/E &amp; P/B; highest yield, ROE, checks, CAGRs).
-        Click a ticker to open its full record.
-      </p>
+        {showCharts && (
+          <section
+            id="compare-panel-charts"
+            className="compare-charts-section"
+            role="tabpanel"
+            aria-label="Chart comparison"
+            aria-labelledby={panel === 'both' ? 'compare-tab-both' : 'compare-tab-charts'}
+          >
+            <div className="compare-section-label">Chart Compare — YoY</div>
+            <p className="compare-note compare-note--tight">
+              Each graph overlays the selected tickers on a shared timeline (same scale per metric).
+            </p>
+            <div className="compare-charts-grid">
+              {COMPARE_CHART_DEFS.map((def) => (
+                <CompareChart
+                  key={def.key}
+                  title={def.title}
+                  reports={reports}
+                  chartKey={def.key}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

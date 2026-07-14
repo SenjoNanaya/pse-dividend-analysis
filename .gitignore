@@ -49,3 +49,11 @@ Thumbs.db
 
 staticfiles/
 .cursor
+
+# ==========================================
+# Frontend (Vite / Node)
+# ==========================================
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local

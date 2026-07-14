@@ -316,11 +316,66 @@ def _is_common_security(security):
     return label.startswith('COMMON')
 
 
+def _normalize_dividend_type(raw):
+    """Map EDGE 'Type of Dividend' to cash | stock | property | other."""
+    text = str(raw or "cash").strip().lower()
+    if "stock" in text:
+        return "stock"
+    if "property" in text or "scrip" in text:
+        return "property"
+    if "cash" in text or text in ("", "nan", "none"):
+        return "cash"
+    return text.replace(" ", "_") or "cash"
+
+
+def _parse_dividend_rate(raw):
+    """
+    Extract per-share PHP amount from EDGE dividend rate cells.
+
+    Prose like 'Thirteen and 51/100 centavos (Php0.1351) per share' must not
+    be digit-stripped (that yields 511000.1351 from 51+100+0.1351).
+    """
+    text = str(raw or "").strip()
+    if not text or text.lower() in {"nan", "none", "-", "–", "—"}:
+        return None
+
+    # Prefer explicit currency amount (Php0.1351 / PHP 1.25 / ₱0.50)
+    currency = re.search(
+        r"(?:₱|Php|PHP)\s*([\d,]+(?:\.\d+)?)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if currency:
+        try:
+            return float(currency.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    # Simple numeric cell: "0.50" / "1.25"
+    if re.fullmatch(r"[\d,]+(?:\.\d+)?", text):
+        try:
+            return float(text.replace(",", ""))
+        except ValueError:
+            return None
+
+    # Last resort: first standalone decimal that looks like a per-share rate
+    candidates = re.findall(r"\d+(?:\.\d+)?", text)
+    for c in candidates:
+        try:
+            val = float(c)
+        except ValueError:
+            continue
+        # Per-share cash rates are almost never huge integers formed from prose
+        if 0 < val < 10_000 and ("." in c or val < 100):
+            return val
+    return None
+
+
 def parse_dividends(html_text):
     """
     Parse PSE EDGE dividends_and_rights_list.ax HTML.
-    Returns all cash/stock rows (common + preferred) with dates.
-    Yields/cover should filter is_common=True.
+    Returns all cash/stock/property rows (common + preferred) with dates.
+    Yields/cover should filter is_common=True and type=cash.
     """
     soup = _make_soup(html_text)
     table = soup.find("table", class_="list")
@@ -340,10 +395,9 @@ def parse_dividends(html_text):
         return []
 
     df = df.copy()
-    df['Dividend Rate'] = (
-        df['Dividend Rate'].astype(str).str.replace(r'[^\d.-]', '', regex=True)
-    )
-    df['Dividend Rate'] = pd.to_numeric(df['Dividend Rate'], errors='coerce')
+    df['_div_type_raw'] = df['Type of Dividend'].astype(str)
+    df['_rate_raw'] = df['Dividend Rate'].astype(str)
+    df['Dividend Rate'] = df['_rate_raw'].map(_parse_dividend_rate)
     for col in ['Ex-Dividend Date', 'Record Date', 'Payment Date']:
         df[col] = pd.to_datetime(df[col], errors='coerce')
 
@@ -353,8 +407,7 @@ def parse_dividends(html_text):
     dividends = []
     for _, row in df.iterrows():
         security = _normalize_security_label(row.get('Type of Security'))
-        div_type_raw = str(row.get('Type of Dividend') or 'Cash').strip().lower()
-        div_type = 'stock' if 'stock' in div_type_raw else 'cash'
+        div_type = _normalize_dividend_type(row.get('_div_type_raw'))
         record = row['Record Date']
         payment = row['Payment Date']
         dividends.append({

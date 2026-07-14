@@ -1,5 +1,7 @@
 """Checklist scoring and completeness checks (mirrors frontend/src/lib/metrics.js)."""
 
+from datetime import date, datetime, timedelta
+
 from src.utils import safe_float
 
 
@@ -217,58 +219,101 @@ def _dedupe_dividends(dividends):
     return list(best.values())
 
 
-def compute_div_yield(price, dividends, latest_fiscal_year=None):
-    """
-    Common-share cash dividends in the latest fiscal year / price.
-    dividends items: rate or amount, ex_date, type, is_common (optional).
-    """
-    price = safe_float(price)
-    if not price or price <= 0:
+def _parse_ex_date(value):
+    """Return datetime.date or None from EDGE date strings / dates."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if len(text) < 10:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
         return None
 
-    rows = [
+
+def common_cash_dividends(dividends):
+    """Deduped common-share cash dividend rows."""
+    return [
         d for d in _dedupe_dividends(dividends)
         if _is_common_dividend(d) and _is_cash_dividend(d)
     ]
-    year = None
-    if latest_fiscal_year is not None:
-        year = str(int(latest_fiscal_year))
-    else:
-        years = []
-        for d in rows:
-            ex = str(d.get("ex_date") or "")
-            if len(ex) >= 4 and ex[:4].isdigit():
-                years.append(int(ex[:4]))
-        if not years:
-            return None
-        year = str(max(years))
 
-    total = 0.0
-    found = False
-    for d in rows:
-        ex = str(d.get("ex_date") or "")
-        if not ex.startswith(year):
-            continue
+
+def annual_dividend_by_calendar_year(dividends):
+    """
+    Sum quarterly (and other) cash common dividends into calendar-year DPS.
+    Returns {year_int: total_amount}.
+    """
+    totals = {}
+    for d in common_cash_dividends(dividends):
+        ex = _parse_ex_date(d.get("ex_date"))
         amt = safe_float(d.get("rate", d.get("amount")))
-        if amt is None:
+        if ex is None or amt is None:
             continue
-        total += amt
-        found = True
-    if not found:
+        totals[ex.year] = totals.get(ex.year, 0.0) + amt
+    return totals
+
+
+def trailing_annual_dividend(dividends, as_of=None, window_days=365):
+    """
+    Trailing-twelve-month common cash DPS only.
+
+    Sums each quarterly (and other) cash payment with ex-date in
+    (as_of - window_days, as_of]. as_of defaults to today — never to the
+    latest historical ex-date, so stale unpaid years cannot inflate yield.
+    Returns None when nothing cash/common falls in the window.
+    """
+    rows = []
+    for d in common_cash_dividends(dividends):
+        ex = _parse_ex_date(d.get("ex_date"))
+        amt = safe_float(d.get("rate", d.get("amount")))
+        if ex is None or amt is None:
+            continue
+        rows.append((ex, amt))
+    if not rows:
         return None
-    return total / price
+
+    if as_of is None:
+        as_of = date.today()
+    elif hasattr(as_of, "date") and not isinstance(as_of, date):
+        as_of = as_of.date()
+
+    start = as_of - timedelta(days=window_days)
+    ttm = sum(amt for ex, amt in rows if start < ex <= as_of)
+    if ttm <= 0:
+        return None
+    return ttm
+
+
+def compute_div_yield(price, dividends, latest_fiscal_year=None, as_of=None):
+    """
+    Dividend yield = trailing-12-month common cash DPS / price.
+
+    No fiscal-year or older-calendar-year fallback: if the company has no
+    cash dividends in the last year, yield is None.
+    """
+    del latest_fiscal_year  # unused — yield is strictly TTM
+    price = safe_float(price)
+    if not price or price <= 0:
+        return None
+    annual_dps = trailing_annual_dividend(dividends, as_of=as_of)
+    if annual_dps is None or annual_dps <= 0:
+        return None
+    return annual_dps / price
 
 
 def compute_screening_summary(company, financials, dividends=None):
     checklist = build_checklist(company, financials)
     passed, total = checklist_score(checklist)
     incomplete = is_info_incomplete(company, financials)
-    fin = _complete_financials(financials)
-    latest_year = fin[-1]["fiscal_year"] if fin else None
     div_yield = compute_div_yield(
         company.get("last_traded_price"),
         dividends or [],
-        latest_fiscal_year=latest_year,
     )
     return {
         "check_pass_count": passed,

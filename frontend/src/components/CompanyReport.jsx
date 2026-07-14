@@ -14,7 +14,7 @@ export default function CompanyReport({ company, onBack }) {
     <div className="report-page animate-fade-in">
       <header className="report-topbar">
         <div className="report-brand-row">
-          <button type="button" className="report-back" onClick={onBack}>
+          <button type="button" className="report-back" onClick={onBack} aria-label="Back to registry">
             &lt; REGISTRY
           </button>
           <span className="report-unit">FUNDAMENTAL_METRICS_UNIT</span>
@@ -23,7 +23,7 @@ export default function CompanyReport({ company, onBack }) {
       </header>
 
       <div className="report-title-bar">
-        <div className="report-ticker">{report.displayTicker}</div>
+        <h1 className="report-ticker">{report.displayTicker}</h1>
         <div className="report-title-center">
           <div className="report-name-inline">{report.companyName}</div>
           <ChecklistPreview report={report} compact showRatios />
@@ -34,7 +34,7 @@ export default function CompanyReport({ company, onBack }) {
         </div>
       </div>
 
-      <section className="report-section-label">Growth Overview</section>
+      <h2 className="report-section-label">Growth Overview</h2>
 
       <div className="report-grid-charts">
         <MetricBarChart
@@ -169,6 +169,10 @@ export default function CompanyReport({ company, onBack }) {
             <div className="report-yield-value">
               {formatPct(report.dividend.avgYield3y)}
             </div>
+            <p className="report-note" style={{ marginTop: 0 }}>
+              Average of completed calendar years (excludes current year until all quarters are in).
+              Listed yield uses trailing 12 months cash dividends only.
+            </p>
             <div className="report-cover-row">
               <span>Dividend Cover</span>
               <span

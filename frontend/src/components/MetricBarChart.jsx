@@ -22,12 +22,12 @@ export default function MetricBarChart({
   title,
   data,
   color = '#abab8d',
-  height = 140,
+  height = 200,
   showTrend = true,
 }) {
   const hasData = Array.isArray(data) && data.some((d) => d.value != null);
-  const axis = '#4b4637';
-  const grid = '#bab49c';
+  const axis = '#4d493e';
+  const grid = '#bab5a1';
   const trend = '#8a7a4a';
 
   return (
@@ -37,36 +37,36 @@ export default function MetricBarChart({
         <div className="report-chart-empty">No data</div>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <ComposedChart data={data} margin={{ top: 18, right: 8, left: -18, bottom: 0 }}>
+          <ComposedChart data={data} margin={{ top: 20, right: 10, left: -12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
             <XAxis
               dataKey="year"
-              tick={{ fontSize: 10, fill: axis }}
+              tick={{ fontSize: 16, fill: axis }}
               axisLine={{ stroke: axis }}
               tickLine={false}
             />
             <YAxis
-              tick={{ fontSize: 9, fill: axis }}
+              tick={{ fontSize: 14, fill: axis }}
               axisLine={false}
               tickLine={false}
-              width={40}
+              width={52}
             />
             <Tooltip
               formatter={(value) => formatLabel(Number(value))}
               contentStyle={{
-                fontSize: 11,
+                fontSize: 17,
                 borderRadius: 0,
                 border: `1px solid ${axis}`,
-                background: '#efebd6',
+                background: '#dcd8c0',
                 color: axis,
               }}
             />
-            <Bar dataKey="value" fill={color} stroke={axis} strokeWidth={0.6} maxBarSize={28}>
+            <Bar dataKey="value" fill={color} stroke={axis} strokeWidth={0.6} maxBarSize={32}>
               <LabelList
                 dataKey="value"
                 position="top"
                 formatter={(v) => formatLabel(Number(v))}
-                style={{ fontSize: 9, fill: axis, fontWeight: 600 }}
+                style={{ fontSize: 14, fill: axis, fontWeight: 600 }}
               />
             </Bar>
             {showTrend && (
