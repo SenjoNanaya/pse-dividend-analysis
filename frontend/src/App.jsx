@@ -1,13 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import CompanyReport from './components/CompanyReport';
+import CompareView from './components/CompareView';
+import NierShell from './components/NierShell';
 import RegistryPreview from './components/RegistryPreview';
+import { formatMarketCap, formatPct, formatPrice, marketCapTier } from './lib/metrics';
 
 const API_BASE = 'http://127.0.0.1:8000/api/companies';
 const jsonHeaders = { Accept: 'application/json' };
+const MAX_COMPARE = 4;
 
 const SORT_FIELDS = {
   ticker: 'ticker',
   name: 'name',
+  price: 'last_traded_price',
+  mcap: 'market_cap',
+  yield: 'div_yield',
   sector: 'sector',
   subsector: 'subsector',
   checks: 'check_pass_count',
@@ -59,6 +66,8 @@ export default function App() {
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [companyDetails, setCompanyDetails] = useState(null);
   const [detailStatus, setDetailStatus] = useState('idle');
+
+  const [comparePicks, setComparePicks] = useState([]);
 
   const listFetchUrl = pageUrl || buildListUrl({ search: searchQuery, ordering });
 
@@ -166,6 +175,39 @@ export default function App() {
     setPreviewCompanyId(id);
   };
 
+  const toggleComparePick = useCallback((company) => {
+    setComparePicks((prev) => {
+      const exists = prev.some((p) => p.id === company.id);
+      if (exists) return prev.filter((p) => p.id !== company.id);
+      if (prev.length >= MAX_COMPARE) return prev;
+      return [
+        ...prev,
+        {
+          id: company.id,
+          ticker: company.ticker || company.symbol,
+          name: company.name,
+        },
+      ];
+    });
+  }, []);
+
+  const clearComparePicks = () => setComparePicks([]);
+
+  const removeComparePick = (id) => {
+    setComparePicks((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  useEffect(() => {
+    if (view === 'compare' && comparePicks.length < 2) {
+      setView('dashboard');
+    }
+  }, [view, comparePicks.length]);
+
+  const openCompare = () => {
+    if (comparePicks.length < 2) return;
+    setView('compare');
+  };
+
   const openCompany = (id) => {
     setSelectedCompanyId(id);
     setView('report');
@@ -184,80 +226,100 @@ export default function App() {
 
   if (view === 'landing') {
     return (
-      <div className="min-h-screen bg-nier-bg font-nier text-nier-dark flex flex-col justify-between p-8 lg:p-16 select-none animate-fade-in">
-        <div className="w-full flex justify-between items-center border-b border-nier-dark pb-3 text-xs tracking-widest font-bold">
+      <NierShell landing className="animate-fade-in">
+        <div className="nier-landing-meta">
           <div>[ GLORY_TO_MANKIND ]</div>
           <div>SYS_STATUS: READY</div>
         </div>
 
-        <div className="max-w-2xl mx-auto flex flex-col gap-6 text-center lg:text-left my-auto">
-          <div className="flex justify-center lg:justify-start items-center gap-4">
-            <div className="w-8 h-8 bg-nier-dark"></div>
-            <span className="text-xs uppercase tracking-widest font-mono opacity-60">PROTOTYPE_V.2.0.6</span>
-          </div>
-
-          <h1 className="text-4xl lg:text-6xl font-bold tracking-tighter uppercase border-b-4 border-nier-dark pb-4">
-            PSE_ANALYSIS <br />
-            <span className="text-nier-orange font-normal">DATA_REGISTRY</span>
-          </h1>
-
-          <p className="text-xs tracking-widest uppercase leading-relaxed opacity-80 max-w-md">
-            Automated monitoring client for tracking stock indexes, financial statements, and systemic multi-sector business evaluation records.
-          </p>
-
-          <div className="pt-4">
-            <button
-              onClick={() => setView('dashboard')}
-              className="group relative border-2 border-nier-dark bg-transparent text-nier-dark px-10 py-4 uppercase tracking-widest text-sm font-bold rounded-none hover:bg-nier-dark hover:text-nier-bg transition-colors duration-300 w-full lg:w-auto"
+        <div className="nier-landing-main">
+          <div className="nier-rail w-full animate-wipe-in">
+            <p className="text-[10px] uppercase tracking-[0.2em] opacity-60 mb-4 font-normal">
+              PROTOTYPE_V.2.0.6
+            </p>
+            <h1
+              className="nier-title nier-landing-brand nier-title-ghost"
+              data-text="PSE_ANALYSIS"
             >
-              Initialize Dashboard Sequence
-              <span className="absolute -bottom-2 -right-2 w-3 h-3 bg-nier-dark group-hover:bg-nier-orange transition-colors"></span>
-            </button>
+              PSE_ANALYSIS
+              <span className="nier-landing-sub">DATA_REGISTRY</span>
+            </h1>
+            <p className="nier-landing-copy">
+              Automated monitoring client for tracking stock indexes, financial statements,
+              and systemic multi-sector business evaluation records.
+            </p>
+            <div className="nier-landing-cta">
+              <button type="button" className="nier-btn" onClick={() => setView('dashboard')}>
+                Initialize Dashboard Sequence
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </NierShell>
     );
   }
 
   if (view === 'report') {
     if (detailStatus === 'loading' || detailStatus === 'idle') {
       return (
-        <div className="report-page report-loading">
-          LOADING_FUNDAMENTAL_RECORD...
-        </div>
+        <NierShell>
+          <div className="report-page report-loading">
+            LOADING_FUNDAMENTAL_RECORD...
+          </div>
+        </NierShell>
       );
     }
     if (detailStatus === 'error' || !companyDetails) {
       return (
-        <div className="report-page report-loading">
-          <p>RECORD_RETRIEVAL_FAILURE</p>
-          <button type="button" className="report-back" onClick={backToDirectory}>
-            &lt; REGISTRY
-          </button>
-        </div>
+        <NierShell>
+          <div className="report-page report-loading">
+            <p>RECORD_RETRIEVAL_FAILURE</p>
+            <button type="button" className="nier-btn mt-4" onClick={backToDirectory}>
+              &lt; REGISTRY
+            </button>
+          </div>
+        </NierShell>
       );
     }
-    return <CompanyReport company={companyDetails} onBack={backToDirectory} />;
+    return (
+      <NierShell>
+        <CompanyReport company={companyDetails} onBack={backToDirectory} />
+      </NierShell>
+    );
   }
 
-  const colSpan = 7;
+  if (view === 'compare') {
+    return (
+      <NierShell>
+        <CompareView
+          picks={comparePicks}
+          onBack={backToDirectory}
+          onRemove={removeComparePick}
+          onOpen={openCompany}
+        />
+      </NierShell>
+    );
+  }
+
+  const colSpan = 11;
+  const compareAtCap = comparePicks.length >= MAX_COMPARE;
 
   return (
-    <div className="min-h-screen bg-nier-bg font-nier text-nier-dark p-4 lg:p-10 select-text">
+    <NierShell className="select-text">
       <header className="nier-dashboard-header">
         <div className="flex items-center gap-3">
-          <button onClick={() => setView('landing')} className="nier-btn px-3 py-1 text-xs">
+          <button type="button" onClick={() => setView('landing')} className="nier-btn px-3 py-1 text-xs">
             &lt; DISCONNECT
           </button>
-          <div className="w-3 h-3 bg-nier-dark hidden lg:block"></div>
-          <h1 className="uppercase tracking-widest text-sm font-bold">CENTRAL_REGISTRY_UNIT</h1>
+          <div className="w-2.5 h-2.5 bg-nier-dark hidden lg:block" />
+          <h1 className="nier-title text-sm tracking-[0.18em]">CENTRAL_REGISTRY_UNIT</h1>
         </div>
-        <div className="text-xs tracking-widest uppercase font-bold text-right">
+        <div className="text-xs tracking-widest uppercase font-medium text-right opacity-80">
           [ ONLINE_RECORDS: <span className="text-nier-orange">{totalCount}</span> ]
         </div>
       </header>
 
-      <div className="nier-dashboard-grid max-w-7xl mx-auto">
+      <div className="nier-dashboard-grid max-w-[90rem] mx-auto">
         <div className="nier-table-column">
           <form onSubmit={handleSearch} className="nier-search-form">
             <input
@@ -270,12 +332,53 @@ export default function App() {
             <button type="submit" className="nier-btn">QUERY</button>
           </form>
 
+          {comparePicks.length > 0 && (
+            <div className="nier-compare-tray">
+              <div className="nier-compare-tray-picks">
+                <span className="nier-compare-tray-label">COMPARE</span>
+                {comparePicks.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="nier-compare-chip"
+                    onClick={() => removeComparePick(p.id)}
+                    title="Remove"
+                  >
+                    {p.ticker} ×
+                  </button>
+                ))}
+                <span className="nier-compare-tray-count">
+                  {comparePicks.length}/{MAX_COMPARE}
+                </span>
+              </div>
+              <div className="nier-compare-tray-actions">
+                <button
+                  type="button"
+                  className="nier-btn text-xs"
+                  disabled={comparePicks.length < 2}
+                  onClick={openCompare}
+                >
+                  OPEN COMPARE
+                </button>
+                <button type="button" className="nier-btn text-xs" onClick={clearComparePicks}>
+                  CLEAR
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="nier-table-container">
             <table className="nier-table">
               <thead>
                 <tr>
+                  <th className="nier-check-col" title="Add to compare">
+                    ⊕
+                  </th>
                   <SortHeader label="TICKER" column="ticker" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="NAME" column="name" ordering={ordering} onSort={handleSort} />
+                  <SortHeader label="PRICE" column="price" ordering={ordering} onSort={handleSort} />
+                  <SortHeader label="MCAP" column="mcap" ordering={ordering} onSort={handleSort} />
+                  <SortHeader label="YIELD" column="yield" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="SECTOR" column="sector" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="SUBSECTOR" column="subsector" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="CHECKS" column="checks" ordering={ordering} onSort={handleSort} />
@@ -312,6 +415,9 @@ export default function App() {
                       company.check_pass_count != null && company.check_evaluable_total != null
                         ? `${company.check_pass_count}/${company.check_evaluable_total}`
                         : '—';
+                    const tier = company.cap_tier || marketCapTier(company.market_cap);
+                    const inCompare = comparePicks.some((p) => p.id === company.id);
+                    const checkboxDisabled = !inCompare && compareAtCap;
                     return (
                       <tr
                         key={company.id}
@@ -321,12 +427,42 @@ export default function App() {
                           'transition-colors duration-150 hover:bg-nier-dark/10',
                           previewCompanyId === company.id ? 'bg-nier-dark/15 ring-1 ring-inset ring-nier-dark/30' : '',
                           qualified ? 'nier-row-qualified' : '',
+                          inCompare ? 'nier-row-compare' : '',
                         ].filter(Boolean).join(' ')}
                       >
+                        <td
+                          className="nier-check-col"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            className="nier-compare-check"
+                            checked={inCompare}
+                            disabled={checkboxDisabled}
+                            onChange={() => toggleComparePick(company)}
+                            title={
+                              checkboxDisabled
+                                ? `Max ${MAX_COMPARE} for compare`
+                                : 'Add to compare'
+                            }
+                            aria-label={`Compare ${company.ticker || company.symbol}`}
+                          />
+                        </td>
                         <td className="font-bold text-nier-orange">
                           {company.ticker || company.symbol}
                         </td>
                         <td>{company.name}</td>
+                        <td className="font-mono whitespace-nowrap">{formatPrice(company.last_traded_price)}</td>
+                        <td className="whitespace-nowrap">
+                          <span className="font-mono">{formatMarketCap(company.market_cap)}</span>
+                          {tier && (
+                            <span className={`nier-cap-tier nier-cap-tier--${tier.toLowerCase()}`}>
+                              {tier}
+                            </span>
+                          )}
+                        </td>
+                        <td className="font-mono whitespace-nowrap">{formatPct(company.div_yield)}</td>
                         <td>{company.sector || '—'}</td>
                         <td>{company.subsector || '—'}</td>
                         <td className="font-mono">{checksLabel}</td>
@@ -368,6 +504,6 @@ export default function App() {
           />
         </div>
       </div>
-    </div>
+    </NierShell>
   );
 }

@@ -32,6 +32,25 @@ export function formatMarketCap(v) {
   return n.toLocaleString();
 }
 
+/** PHP market-cap tiers: Micro <3B, Small 3–20B, Mid 20–100B, Large ≥100B. */
+export function marketCapTier(v) {
+  const n = safeNum(v);
+  if (n == null) return null;
+  if (n < 3e9) return 'MICRO';
+  if (n < 20e9) return 'SMALL';
+  if (n < 100e9) return 'MID';
+  return 'LARGE';
+}
+
+export function formatPrice(v) {
+  const n = safeNum(v);
+  if (n == null) return '—';
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export function formatPct(v, digits = 2) {
   const n = safeNum(v);
   if (n == null) return '—';
@@ -89,8 +108,8 @@ export function computeCagr(series) {
 
 export function dividendsByYear(dividends = []) {
   const map = new Map();
-  for (const d of dividends) {
-    if (!isCommonDividend(d)) continue;
+  for (const d of dedupeDividends(dividends)) {
+    if (!isCommonDividend(d) || !isCashDividend(d)) continue;
     const amount = safeNum(d.amount);
     if (amount == null || !d.ex_date) continue;
     const year = String(d.ex_date).slice(0, 4);
@@ -102,12 +121,52 @@ export function dividendsByYear(dividends = []) {
     .map(([year, value]) => ({ year, value }));
 }
 
+function isCashDividend(d) {
+  const dtype = String(d.type || 'cash').trim().toLowerCase();
+  return !dtype || dtype === 'cash';
+}
+
 function isCommonDividend(d) {
   if (d.is_common === 0 || d.is_common === false) return false;
   if (d.is_common === 1 || d.is_common === true) return true;
   const sec = String(d.security || '').toUpperCase();
   if (!sec) return true; // legacy rows treated as common
   return sec === 'COMMON' || sec.startsWith('COMMON ');
+}
+
+function dedupeDividends(dividends = []) {
+  const stockKeys = new Set();
+  for (const d of dividends) {
+    const amount = safeNum(d.amount);
+    if (amount == null || !d.ex_date) continue;
+    const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
+    if (dtype === 'stock') stockKeys.add(`${d.ex_date}|${amount}`);
+  }
+
+  const best = new Map();
+  for (const d of dividends) {
+    const amount = safeNum(d.amount);
+    if (amount == null || !d.ex_date) continue;
+    const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
+    // Drop cash rows that duplicate a stock dividend at the same date/amount
+    if (dtype === 'cash' && stockKeys.has(`${d.ex_date}|${amount}`)) continue;
+    const key = `${d.ex_date}|${amount}|${dtype}`;
+    const flagged =
+      d.is_common === 1
+      || d.is_common === true
+      || String(d.security || '').toUpperCase().startsWith('COMMON');
+    const prev = best.get(key);
+    if (!prev) {
+      best.set(key, d);
+      continue;
+    }
+    const prevFlagged =
+      prev.is_common === 1
+      || prev.is_common === true
+      || String(prev.security || '').toUpperCase().startsWith('COMMON');
+    if (flagged && !prevFlagged) best.set(key, d);
+  }
+  return [...best.values()];
 }
 
 export function dividendHistoryRows(dividends = []) {
@@ -182,12 +241,11 @@ export function buildReport(company) {
   const roe = roeScraped ?? roeComputed;
 
   const latestYear = latest?.fiscal_year != null ? String(latest.fiscal_year) : null;
-  const commonDividends = dividends.filter(isCommonDividend);
-  const divInLatestYear = commonDividends
-    .filter((d) => d.ex_date && String(d.ex_date).startsWith(latestYear || '____'))
-    .reduce((sum, d) => sum + (safeNum(d.amount) || 0), 0);
-
-  const divYield = price && divInLatestYear ? divInLatestYear / price : null;
+  const divInLatestYear = latestYear
+    ? (divSeries.find((d) => d.year === latestYear)?.value ?? 0)
+    : 0;
+  const computedDivYield = price && divInLatestYear ? divInLatestYear / price : null;
+  const divYield = safeNum(company.div_yield) ?? computedDivYield;
   const totalDivPaid =
     shares != null && divInLatestYear ? divInLatestYear * shares : null;
   const divCover =
@@ -208,6 +266,13 @@ export function buildReport(company) {
     income: computeCagr(ni),
     assets: computeCagr(assets),
   };
+
+  const latestShares = safeNum(latest?.outstanding_shares) ?? shares;
+  const prevShares = safeNum(prev?.outstanding_shares);
+  let dilutionPass = null;
+  if (latestShares != null && prevShares != null && prevShares > 0) {
+    dilutionPass = latestShares <= prevShares * 1.001;
+  }
 
   const checklist = [
     { label: 'P/E Ratio < 22', pass: pe != null ? pe < 22 : null },
@@ -233,7 +298,7 @@ export function buildReport(company) {
           ? safeNum(latest.total_assets) > safeNum(prev.total_assets)
           : null,
     },
-    { label: 'NO Share Dilution', pass: shares != null ? true : null },
+    { label: 'NO Share Dilution', pass: dilutionPass },
     {
       label: 'Quick/Current R > 1',
       pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
@@ -258,10 +323,19 @@ export function buildReport(company) {
     divCoverStatus = divCover >= 1 ? 'GOOD' : 'WEAK';
   }
 
+  const score = checklistScore(checklist);
+
   return {
     displayTicker: company.ticker || company.symbol,
     companyName: company.name,
+    companyId: company.id,
+    price,
+    marketCap: safeNum(company.market_cap),
     marketCapLabel: formatMarketCap(company.market_cap),
+    capTier: marketCapTier(company.market_cap),
+    sector: company.sector || null,
+    subsector: company.subsector || null,
+    divYield,
     asOf: company.last_updated
       ? new Date(company.last_updated)
       : new Date(),
@@ -277,6 +351,7 @@ export function buildReport(company) {
     ratios: { pe, pb, roe },
     dividend: {
       avgYield3y,
+      yield: divYield,
       cover: divCover,
       coverStatus: divCoverStatus,
       history: dividendHistoryRows(dividends),
@@ -287,7 +362,9 @@ export function buildReport(company) {
       zeroGrowthFv,
     },
     checklist,
+    checklistScore: score,
     latestYear,
+    passesScreen: !company.info_incomplete && score.pass > 5,
   };
 }
 

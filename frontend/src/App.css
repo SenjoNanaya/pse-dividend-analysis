@@ -1,30 +1,12 @@
+/* Legacy unused tokens — kept in sync with index.css theme */
 @import "tailwindcss";
 
 @theme {
-  /* Defining design tokens maps them directly to utility classes */
-  --color-nier-bg: #dcd8c0;          /* Enables bg-nier-bg */
-  --color-nier-dark: #4b4637;        /* Enables text-nier-dark, border-nier-dark */
-  --color-nier-dark-muted: #575141;  /* Enables bg-nier-dark-muted */
-  --color-nier-light: #efebd6;       /* Enables bg-nier-light */
-  --color-nier-gray: #bab49c;        /* Enables border-nier-gray */
-  --color-nier-orange: #ab9d72;      /* Enables text-nier-orange */
-
-  --font-nier: 'Arial', 'Helvetica', 'sans-serif'; /* Enables font-nier */
-}
-
-/* Base custom resets using your theme variables */
-body {
-  margin: 0;
-  background-color: var(--color-nier-bg);
-}
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--color-nier-bg);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--color-nier-dark);
+  --color-nier-bg: #c8c2aa;
+  --color-nier-dark: #4d493e;
+  --color-nier-dark-muted: #5c574c;
+  --color-nier-light: #dcd8c0;
+  --color-nier-gray: #bab5a1;
+  --color-nier-orange: #a67c52;
+  --font-nier: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
 }

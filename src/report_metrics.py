@@ -47,11 +47,49 @@ def _complete_financials(financials):
     return [f for f in _sorted_financials(financials) if _has_core_metrics(f)]
 
 
+def map_shares_to_fiscal_years(historical_shares, fiscal_years, stock_shares=None):
+    """
+    Attach Form 17-C share counts to statement fiscal years.
+    Prefers exact year, then year+1 (early next-year filings), then year-1.
+    Falls back to stock-page shares for the latest fiscal year only.
+    """
+    historical_shares = historical_shares or {}
+    mapped = {}
+    for fy in sorted(fiscal_years or []):
+        candidates = []
+        for y in (fy, fy + 1, fy - 1):
+            if y in historical_shares and historical_shares[y] is not None:
+                candidates.append((abs(y - fy), -y, float(historical_shares[y])))
+        if candidates:
+            candidates.sort()
+            mapped[fy] = candidates[0][2]
+    if stock_shares is not None and fiscal_years:
+        latest = max(fiscal_years)
+        if latest not in mapped:
+            mapped[latest] = float(stock_shares)
+    return mapped
+
+
+def no_share_dilution_pass(latest, prev):
+    """
+    Pass when share count did not increase YoY.
+    Returns None when either year lacks share data.
+    """
+    if not latest or not prev:
+        return None
+    a = safe_float(latest.get("outstanding_shares"))
+    b = safe_float(prev.get("outstanding_shares"))
+    if a is None or b is None or b <= 0:
+        return None
+    # Treat tiny float noise as unchanged; dilution = clear increase
+    return a <= b * 1.001
+
+
 def build_checklist(company, financials):
     """
     company: dict with pe_ratio, pb_ratio, roe, market_cap, outstanding_shares, last_traded_price
     financials: list of dicts with fiscal_year, book_value, net_income, total_assets,
-                current_ratio, quick_ratio, eps
+                current_ratio, quick_ratio, eps, outstanding_shares
     """
     fin = _complete_financials(financials)
     latest = fin[-1] if fin else None
@@ -63,6 +101,8 @@ def build_checklist(company, financials):
         company.get("outstanding_shares"),
     )
     shares = safe_float(company.get("outstanding_shares"))
+    if shares is None and latest is not None:
+        shares = safe_float(latest.get("outstanding_shares"))
     eps = safe_float(latest.get("eps")) if latest else None
     book_value = safe_float(latest.get("book_value")) if latest else None
     net_income = safe_float(latest.get("net_income")) if latest else None
@@ -100,7 +140,7 @@ def build_checklist(company, financials):
         {"label": "Increasing BV", "pass": _inc("book_value")},
         {"label": "Increasing Income", "pass": _inc("net_income")},
         {"label": "Increasing Assets", "pass": _inc("total_assets")},
-        {"label": "NO Share Dilution", "pass": True if shares is not None else None},
+        {"label": "NO Share Dilution", "pass": no_share_dilution_pass(latest, prev)},
         {"label": "Quick/Current R > 1", "pass": _liquidity_ratio_pass(current_ratio, quick_ratio)},
         {"label": "ROE > 10%", "pass": roe > 0.1 if roe is not None else None},
     ]
@@ -127,12 +167,112 @@ def is_info_incomplete(company, financials):
     return False
 
 
-def compute_screening_summary(company, financials):
+def _is_common_dividend(d):
+    is_common = d.get("is_common")
+    if is_common is False or is_common == 0:
+        return False
+    if is_common is True or is_common == 1:
+        return True
+    security = str(d.get("security") or "").upper()
+    if not security:
+        return True
+    return security == "COMMON" or security.startswith("COMMON ")
+
+
+def _is_cash_dividend(d):
+    dtype = str(d.get("type") or "cash").strip().lower()
+    return dtype in ("", "cash")
+
+
+def _dedupe_dividends(dividends):
+    """Prefer flagged COMMON rows over legacy null-security duplicates."""
+    stock_keys = set()
+    for d in dividends or []:
+        amt = safe_float(d.get("rate", d.get("amount")))
+        if amt is None:
+            continue
+        dtype = str(d.get("type") or "cash").strip().lower() or "cash"
+        if dtype == "stock":
+            stock_keys.add((str(d.get("ex_date") or ""), round(amt, 8)))
+
+    best = {}
+    for d in dividends or []:
+        amt = safe_float(d.get("rate", d.get("amount")))
+        if amt is None:
+            continue
+        ex = str(d.get("ex_date") or "")
+        dtype = str(d.get("type") or "cash").strip().lower() or "cash"
+        # Drop cash rows that duplicate a stock dividend at the same date/amount
+        if dtype == "cash" and (ex, round(amt, 8)) in stock_keys:
+            continue
+        key = (ex, round(amt, 8), dtype)
+        flagged = d.get("is_common") in (1, True) or str(d.get("security") or "").upper().startswith("COMMON")
+        prev = best.get(key)
+        if prev is None:
+            best[key] = d
+            continue
+        prev_flagged = prev.get("is_common") in (1, True) or str(prev.get("security") or "").upper().startswith("COMMON")
+        if flagged and not prev_flagged:
+            best[key] = d
+    return list(best.values())
+
+
+def compute_div_yield(price, dividends, latest_fiscal_year=None):
+    """
+    Common-share cash dividends in the latest fiscal year / price.
+    dividends items: rate or amount, ex_date, type, is_common (optional).
+    """
+    price = safe_float(price)
+    if not price or price <= 0:
+        return None
+
+    rows = [
+        d for d in _dedupe_dividends(dividends)
+        if _is_common_dividend(d) and _is_cash_dividend(d)
+    ]
+    year = None
+    if latest_fiscal_year is not None:
+        year = str(int(latest_fiscal_year))
+    else:
+        years = []
+        for d in rows:
+            ex = str(d.get("ex_date") or "")
+            if len(ex) >= 4 and ex[:4].isdigit():
+                years.append(int(ex[:4]))
+        if not years:
+            return None
+        year = str(max(years))
+
+    total = 0.0
+    found = False
+    for d in rows:
+        ex = str(d.get("ex_date") or "")
+        if not ex.startswith(year):
+            continue
+        amt = safe_float(d.get("rate", d.get("amount")))
+        if amt is None:
+            continue
+        total += amt
+        found = True
+    if not found:
+        return None
+    return total / price
+
+
+def compute_screening_summary(company, financials, dividends=None):
     checklist = build_checklist(company, financials)
     passed, total = checklist_score(checklist)
     incomplete = is_info_incomplete(company, financials)
+    fin = _complete_financials(financials)
+    latest_year = fin[-1]["fiscal_year"] if fin else None
+    div_yield = compute_div_yield(
+        company.get("last_traded_price"),
+        dividends or [],
+        latest_fiscal_year=latest_year,
+    )
     return {
         "check_pass_count": passed,
         "check_evaluable_total": total,
         "info_incomplete": incomplete,
+        "div_yield": div_yield,
     }

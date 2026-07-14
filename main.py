@@ -5,7 +5,7 @@ from src.utils import logger, random_delay
 from src import db 
 from src.db import get_connection, init_db
 from src import parser
-from src.report_metrics import compute_screening_summary
+from src.report_metrics import compute_screening_summary, map_shares_to_fiscal_years
 
 def run_pipeline():
     # 1. Initialize database
@@ -99,10 +99,15 @@ def run_pipeline():
                         if year and shares:
                             historical_shares[year] = shares
             
-            # Merge shares into yearly_metrics (do not invent empty fiscal years)
-            for year, shares in historical_shares.items():
-                if year in yearly_metrics:
-                    yearly_metrics[year]['outstanding_shares'] = shares
+            # Merge Form 17-C shares onto statement fiscal years (no empty shells)
+            fiscal_years = list(yearly_metrics.keys())
+            share_by_year = map_shares_to_fiscal_years(
+                historical_shares,
+                fiscal_years,
+                stock_shares=stock_info.get('outstanding_shares'),
+            )
+            for year, shares in share_by_year.items():
+                yearly_metrics[year]['outstanding_shares'] = shares
             
             # Fill blank stock-page P/E, P/B, price, ROE from disclosures
             stock_info = parser.resolve_valuation_fallbacks(
@@ -161,6 +166,7 @@ def run_pipeline():
                     'total_liabilities': metrics.get('total_liabilities'),
                     'current_ratio': year_ratios.get('current_ratio'),
                     'quick_ratio': year_ratios.get('quick_ratio'),
+                    'outstanding_shares': metrics.get('outstanding_shares'),
                 }
                 has_core = any(
                     financial_data.get(k) is not None
@@ -186,6 +192,7 @@ def run_pipeline():
                     'last_traded_price': stock_info.get('last_traded_price'),
                 },
                 financial_rows,
+                dividends=dividends,
             )
             db.update_company_screening(
                 conn,
@@ -193,6 +200,7 @@ def run_pipeline():
                 screening['check_pass_count'],
                 screening['check_evaluable_total'],
                 screening['info_incomplete'],
+                div_yield=screening.get('div_yield'),
             )
             
             # 6c. Insert dividends (common + preferred; yield uses is_common)

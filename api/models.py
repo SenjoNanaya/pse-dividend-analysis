@@ -16,6 +16,7 @@ class Company(models.Model):
     check_pass_count = models.IntegerField(blank=True, null=True)
     check_evaluable_total = models.IntegerField(blank=True, null=True)
     info_incomplete = models.IntegerField(blank=True, null=True)
+    div_yield = models.FloatField(blank=True, null=True)
     last_updated = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
@@ -55,6 +56,7 @@ class Financial(models.Model):
     total_liabilities = models.FloatField(blank=True, null=True)
     current_ratio = models.FloatField(blank=True, null=True)
     quick_ratio = models.FloatField(blank=True, null=True)
+    outstanding_shares = models.FloatField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.company.symbol} - {self.fiscal_year}"

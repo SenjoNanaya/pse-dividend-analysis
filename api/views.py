@@ -15,6 +15,7 @@ class CompanyListView(ListAPIView):
     ordering_fields = [
         'symbol', 'name', 'sector', 'subsector', 'ticker',
         'check_pass_count', 'check_evaluable_total', 'info_incomplete',
+        'market_cap', 'last_traded_price', 'div_yield',
     ]
     ordering = ['-check_pass_count', 'symbol']
 

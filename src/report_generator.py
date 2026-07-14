@@ -94,7 +94,17 @@ def generate_report(company_data):
         "bv_increasing": len(years) >= 2 and company_data["years"][years[-1]].get("book_value_per_share", 0) > company_data["years"][years[-2]].get("book_value_per_share", 0),
         "income_increasing": len(years) >= 2 and company_data["years"][years[-1]].get("net_income", 0) > company_data["years"][years[-2]].get("net_income", 0),
         "assets_increasing": len(years) >= 2 and company_data["years"][years[-1]].get("total_assets", 0) > company_data["years"][years[-2]].get("total_assets", 0),
-        "shares_diluting": len(years) >= 2 and company_data["years"][years[-1]].get("outstanding_shares", 0) > company_data["years"][years[-2]].get("outstanding_shares", 0),
+        "shares_diluting": (
+            len(years) >= 2
+            and (company_data["years"][years[-1]].get("outstanding_shares") is not None)
+            and (company_data["years"][years[-2]].get("outstanding_shares") is not None)
+            and company_data["years"][years[-1]]["outstanding_shares"]
+            > company_data["years"][years[-2]]["outstanding_shares"] * 1.001
+        ) if (
+            len(years) >= 2
+            and company_data["years"][years[-1]].get("outstanding_shares") is not None
+            and company_data["years"][years[-2]].get("outstanding_shares") is not None
+        ) else None,
         "roe_above_10": roe is not None and roe > 0.10
     }
 
@@ -169,7 +179,13 @@ def generate_report(company_data):
     }
     for key, label in check_labels.items():
         val = check.get(key)
-        if val is None:
+        if key == "shares_diluting":
+            # Pass when NOT diluting (align with UI "NO Share Dilution")
+            if val is None:
+                symbol = "?"
+            else:
+                symbol = "✅" if not val else "❌"
+        elif val is None:
             symbol = "?"
         elif val:
             symbol = "✅"

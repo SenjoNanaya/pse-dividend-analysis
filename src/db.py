@@ -36,6 +36,7 @@ def init_db():
             check_pass_count INTEGER,
             check_evaluable_total INTEGER,
             info_incomplete INTEGER,
+            div_yield REAL,
             last_updated DATETIME
         )
     """)
@@ -55,6 +56,7 @@ def init_db():
             total_liabilities REAL,
             current_ratio REAL,
             quick_ratio REAL,
+            outstanding_shares REAL,
             UNIQUE(company_id, fiscal_year),
             FOREIGN KEY(company_id) REFERENCES companies(id)
         )
@@ -114,6 +116,7 @@ def _ensure_company_columns(cursor):
         ("check_pass_count", "INTEGER"),
         ("check_evaluable_total", "INTEGER"),
         ("info_incomplete", "INTEGER"),
+        ("div_yield", "REAL"),
     ):
         if col not in existing:
             cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {decl}")
@@ -125,6 +128,7 @@ def _ensure_financial_columns(cursor):
     for col, decl in (
         ("current_ratio", "REAL"),
         ("quick_ratio", "REAL"),
+        ("outstanding_shares", "REAL"),
     ):
         if col not in existing:
             cursor.execute(f"ALTER TABLE financials ADD COLUMN {col} {decl}")
@@ -202,18 +206,20 @@ def get_or_create_company(conn, symbol, name, sector=None, subsector=None, snaps
     return cursor.lastrowid
 
 
-def update_company_screening(conn, company_id, check_pass_count, check_evaluable_total, info_incomplete):
+def update_company_screening(conn, company_id, check_pass_count, check_evaluable_total, info_incomplete, div_yield=None):
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE companies
         SET check_pass_count = ?,
             check_evaluable_total = ?,
-            info_incomplete = ?
+            info_incomplete = ?,
+            div_yield = ?
         WHERE id = ?
     """, (
         check_pass_count,
         check_evaluable_total,
         1 if info_incomplete else 0,
+        div_yield,
         company_id,
     ))
     conn.commit()
@@ -221,8 +227,8 @@ def update_company_screening(conn, company_id, check_pass_count, check_evaluable
 def insert_financials(conn, company_id, fiscal_year, data):
     """
     Insert or replace financial data for a company/year.
-    data: dict with keys: revenue, net_income, eps, book_value, total_assets,
-          total_liabilities, current_ratio, quick_ratio
+    data: revenue, net_income, eps, book_value, total_assets, total_liabilities,
+          current_ratio, quick_ratio, outstanding_shares
     """
     cursor = conn.cursor()
     
@@ -230,8 +236,8 @@ def insert_financials(conn, company_id, fiscal_year, data):
         INSERT OR REPLACE INTO financials (
             company_id, fiscal_year, revenue, net_income, eps, 
             book_value, total_assets, total_liabilities,
-            current_ratio, quick_ratio
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            current_ratio, quick_ratio, outstanding_shares
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         company_id,
         fiscal_year,
@@ -243,6 +249,7 @@ def insert_financials(conn, company_id, fiscal_year, data):
         data.get('total_liabilities'),
         data.get('current_ratio'),
         data.get('quick_ratio'),
+        data.get('outstanding_shares'),
     ))
     conn.commit()
 
