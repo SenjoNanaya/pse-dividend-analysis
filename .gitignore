@@ -46,3 +46,6 @@ ENV/
 *.swp
 .DS_Store
 Thumbs.db
+
+staticfiles/
+.cursor

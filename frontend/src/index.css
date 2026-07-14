@@ -112,7 +112,7 @@ body {
 
 /* Right column – we apply nier-outer-box directly in JSX, so no nesting here */
 .nier-detail-column {
-  @apply lg:col-span-1 min-h-[500px];   /* use arbitrary value */
+  @apply lg:col-span-1 min-h-125;   /* use arbitrary value */
 }
 
 /* Search form */

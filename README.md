@@ -1,126 +1,159 @@
-# PSE Edge ETL Pipeline — Philippine Stock Exchange Data Scraper & Analyzer
+# PSE Edge — Scraper, Database & Analysis Dashboard
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A modular ETL (Extract, Transform, Load) pipeline that scrapes, parses, and analyzes financial data from the Philippine Stock Exchange (PSE) Edge portal. Built for **educational and personal Value Investing research**, this tool extracts company fundamentals, stock data, dividends, and historical disclosures—then generates comprehensive investment reports with growth metrics, ratios, and visualizations.
+A modular pipeline that scrapes, parses, and stores financial data from the Philippine Stock Exchange (PSE) Edge portal. Built for **educational and personal Value Investing research**, it persists company fundamentals to SQLite, serves them through a Django REST API, and presents them in a React dashboard with growth metrics, ratios, and fundamental checklists.
 
-> 📌 **Important**: This tool is for educational research only. Please review the [Disclaimer](DISCLAIMER.md) before use.
+> **Important**: This tool is for educational research only. Please review the [Disclaimer](DISCLAIMER.md) before use.
 
 ---
 
-## 📊 What This Pipeline Does
+## What This Project Does
 
 | Phase | What It Does |
 |-------|--------------|
-| **Extract** | Fetches stock data, dividends, annual reports, and SEC Form 17‑C share disclosures from PSE Edge |
-| **Transform** | Parses HTML, extracts tabular financial data, detects and applies scale factors (thousands/millions/billions), and calculates growth rates |
-| **Load** | Generates a comprehensive investment report with growth overview, ratios, fundamental checklist, and valuation scenarios (plus a matplotlib bar chart) |
+| **Extract** | Fetches stock data, dividends, annual reports, and SEC Form 17-C share disclosures from PSE Edge |
+| **Transform** | Parses HTML, extracts tabular financial data, detects and applies scale factors (thousands/millions/billions), and resolves valuation fallbacks |
+| **Load** | Persists companies, financials, and dividends to SQLite; optionally generates matplotlib reports |
+| **Serve** | Exposes stored data via Django REST API and a React registry/report UI |
 
 ### Data Flow
 
 ```
-companies.csv → PSEScraper → HTML Pages → Parser → Clean Data → Report Generation → Console Output + Chart
+companies.csv → PSEScraper → HTML Pages → Parser → SQLite (pse_analysis.db)
+                                                          ↓
+                                              Django REST API → React dashboard
+                                                          ↘
+                                              report_generator (optional charts)
 ```
 
 The pipeline navigates PSE Edge's complex architecture:
-- `search.ax` → discovers disclosures by type (Annual Report, SEC Form 17‑C, etc.)
-- `openDiscViewer.do` → retrieves the document viewer page
-- `downloadHtml.do` → downloads the report as HTML (parsable) or PDF (future fallback)
-- `dividends_and_rights_list.ax` → fetches dividend history via XHR
+
+- `search.ax` — discovers disclosures by type (Annual Report, SEC Form 17-C, etc.)
+- `openDiscViewer.do` — retrieves the document viewer page
+- `downloadHtml.do` — downloads the report as HTML (parsable) or PDF (future fallback)
+- `dividends_and_rights_list.ax` — fetches dividend history via XHR
 
 ---
 
-## 🛠️ Features
+## Features
 
 - **Automated data fetching** with polite delays (`1.5–5.5` second random intervals)
-- **Scale‑aware parsing** — detects if amounts are in thousands, millions, or billions
-- **Multi‑year financial extraction** — captures current year, previous year, and beyond
-- **Historical shares tracking** — parses SEC Form 17‑C to detect shareholder dilution
-- **Comprehensive analysis**:
-  - YoY growth rates & 3‑year CAGR
+- **SQLite persistence** — companies, multi-year financials, dividends, and processing logs
+- **Scale-aware parsing** — detects if amounts are in thousands, millions, or billions
+- **Multi-year financial extraction** — captures current year, previous year, and beyond
+- **Historical shares tracking** — parses SEC Form 17-C to detect shareholder dilution
+- **REST API** — paginated company list with search; detail endpoint with financials and dividends
+- **React dashboard** — company registry, search, pagination, and fundamental report views
+- **Comprehensive analysis** (CLI reports and web UI):
+  - YoY growth rates and 3-year CAGR
   - P/E, P/B, ROE, Dividend Yield, Dividend Cover
-  - Fundamental checklist (✓/✗)
-  - DCF valuation (zero‑growth scenario)
-- **Visualization** — bar chart of YoY growth rates using `matplotlib`
-- **Modular architecture** — `scraper.py`, `parser.py`, `database.py`, `utils.py`, `main.py`
+  - Fundamental checklist (pass/fail)
+  - DCF valuation (zero-growth scenario)
+- **Optional visualization** — bar charts of YoY growth rates via `matplotlib`
+- **Modular architecture** — `scraper.py`, `parser.py`, `db.py`, `report_generator.py`, `utils.py`, `main.py`
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
-pse-research-project/
+Edge/
+├── api/                        # Django REST app (unmanaged models → SQLite tables)
+│   ├── models.py
+│   ├── serializers.py
+│   ├── views.py
+│   └── urls.py
+├── django_backend/             # Django project settings and URL routing
+├── frontend/                   # Vite + React dashboard
+│   └── src/
+│       ├── App.jsx
+│       ├── components/
+│       └── lib/metrics.js
 ├── data/
-│   └── companies.csv          # Master company list (you provide this)
+│   ├── companies.csv           # Master company list (you provide this)
+│   └── pse_analysis.db         # Created by the pipeline (gitignored)
 ├── logs/
-│   └── scraper.log            # Pipeline execution logs
+│   └── scraper.log             # Pipeline execution logs (gitignored)
+├── reports/                    # Optional matplotlib chart output (gitignored)
 ├── src/
-│   ├── __init__.py
-│   ├── scraper.py             # Extract: HTTP requests, session management
-│   ├── parser.py              # Transform: HTML parsing, data cleaning, scaling
-│   ├── database.py            # Load & Analyze: report generation, growth calc, charts
-│   └── utils.py               # Helpers: logging, delays, headers, scale parsing
-├── .env                       # Environment variables (optional)
-├── .gitignore
-├── main.py                    # Orchestrates the full ETL pipeline
-├── requirements.txt           # Python dependencies
-├── DISCLAIMER.md              # Legal & ethical usage terms
-└── README.md                  # This file
+│   ├── scraper.py              # Extract: HTTP requests, session management
+│   ├── parser.py               # Transform: HTML parsing, data cleaning, scaling
+│   ├── db.py                   # SQLite schema, inserts, processing logs
+│   ├── report_generator.py     # Optional CLI reports and charts
+│   └── utils.py                # Logging, delays, headers, env config
+├── main.py                     # Scrape-and-persist pipeline (loops all companies)
+├── manage.py                   # Django management entry point
+├── requirements.txt            # Python dependencies
+├── DISCLAIMER.md
+└── README.md
 ```
 
 ---
 
-## 🔧 Installation
+## Installation
+
+### Prerequisites
+
+- Python 3.8+
+- Node.js 18+ (for the frontend)
 
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/pse-research-project.git
-cd pse-research-project
+git clone https://github.com/SenjoNanaya/pse-dividend-analysis.git
+cd pse-dividend-analysis
 ```
 
-### 2. Create a virtual environment
+### 2. Python environment
 
 ```bash
 python -m venv venv
 source venv/bin/activate      # On Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-
-```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables (optional)
+### 3. Frontend dependencies
 
-Create a `.env` file in the project root (adjust as needed):
+```bash
+cd frontend
+npm install
+cd ..
+```
+
+### 4. Environment variables (optional)
+
+Create a `.env` file in the project root:
 
 ```ini
 LOG_LEVEL=INFO
+LOG_FILE=logs/scraper.log
 MIN_DELAY=1.5
 MAX_DELAY=5.5
+DB_PATH=data/pse_analysis.db
 ```
 
 ---
 
-## 📋 Preparing `companies.csv`
+## Preparing `companies.csv`
 
-The pipeline requires a CSV file with the following columns:
+The pipeline requires a CSV file at `data/companies.csv` with at least these columns:
 
-| Column          | Description                              | Example          |
-|-----------------|------------------------------------------|------------------|
-| `company_name`  | Full company name                        | Ayala Corporation |
-| `ticker`        | Stock ticker symbol                      | AC               |
-| `cmpy_id`       | Internal PSE company ID                  | 57               |
-| `security_id`   | Internal PSE security ID                 | 180              |
+| Column | Description | Example |
+|--------|-------------|---------|
+| `company_name` | Full company name | Ayala Corporation |
+| `ticker` | Stock ticker symbol | AC |
+| `cmpy_id` | Internal PSE company ID | 57 |
+| `security_id` | Internal PSE security ID | 180 |
+
+An optional `sector` column is used when present.
 
 **Where to get this data?**  
-You can obtain it by scraping the PSE company directory. A simple way is to use the XHR endpoint we discovered:  
-`https://edge.pse.com.ph/companyDirectory/search.ax` – you can fetch this from your browser's Developer Tools and parse the HTML table.
+You can obtain it by scraping the PSE company directory. A simple way is to use the XHR endpoint:  
+`https://edge.pse.com.ph/companyDirectory/search.ax` — fetch this from your browser's Developer Tools and parse the HTML table.
 
-We **do not** include our own `companies.csv` in the repository. To generate your own, you can run a one‑time script like:
+We **do not** include `companies.csv` in the repository. To generate your own, you can run a one-time script like:
 
 ```python
 # generate_companies.py
@@ -138,10 +171,8 @@ with open('data/companies.csv', 'w', newline='', encoding='utf-8') as f:
     for row in rows:
         links = row.find_all('a')
         if len(links) >= 2:
-            # Extract company name and ticker
             company_name = links[0].get_text(strip=True)
             ticker = links[1].get_text(strip=True)
-            # Extract cmpy_id and security_id from onclick
             onclick = links[0].get('onclick', '')
             if 'cmDetail' in onclick:
                 parts = onclick.split("'")
@@ -151,125 +182,118 @@ with open('data/companies.csv', 'w', newline='', encoding='utf-8') as f:
                     writer.writerow([company_name, ticker, cmpy_id, security_id])
 ```
 
-Place the resulting `companies.csv` in the `data/` folder before running the main pipeline.
+Place the resulting `companies.csv` in the `data/` folder before running the pipeline.
 
 ---
 
-## 🚀 Usage
+## Usage
 
-### Run the pipeline for a single company
+Run the three parts in separate terminals after `companies.csv` is in place.
+
+### 1. Scrape and populate the database
 
 ```bash
 python main.py
 ```
 
-By default, `main.py` processes the company at `row_index=45` (Bank of the Philippine Islands). To change which company is processed, modify the `row_index` in `main.py`:
+This loops over every row in `companies.csv`, scrapes PSE Edge, and writes results to `data/pse_analysis.db`. Companies without financial data are skipped and logged in `processing_log`. Optional matplotlib reports are saved to `reports/`.
 
-```python
-run_pipeline(row_index=45)   # Change 45 to any row index in companies.csv
+### 2. Start the Django API
+
+```bash
+python manage.py runserver
 ```
 
-### Expected output
+The API runs at `http://127.0.0.1:8000/`.
 
-The script will:
+| Endpoint | Description |
+|----------|-------------|
+| `GET /api/companies/` | Paginated company list (10 per page) |
+| `GET /api/companies/?search=<query>` | Search by symbol, name, or ticker |
+| `GET /api/companies/<id>/` | Company detail with financials and dividends |
 
-1. Print a comprehensive **investment report** to the console:
-   - Growth overview
-   - Ratios
-   - Fundamental checklist
-   - DCF valuation
+Example:
 
-2. Display a **bar chart** showing YoY growth rates for:
-   - Book Value
-   - Net Income
-   - Total Assets
-   - Revenue
-
-### Example output (Bank of the Philippine Islands)
-
-```
-================================================================================
-Bank of the Philippine Islands (BPI)
-Last Price: 101.00 PHP
-Market Cap: 521,956,551,279 PHP
-================================================================================
-
-GROWTH OVERVIEW
---------------------------------------------------------------------------------
-Metric         YoY 2023→2024  YoY 2024→2025  3‑Year CAGR
-Book Value     13.0%          10.5%          11.7%
-Net Income     20.0%          7.4%           13.5%
-Total Assets   14.9%          10.0%          12.4%
-Revenue        23.0%          14.8%          18.8%
-EPS            12.6%          7.1%           9.9%
-
-RATIOS
---------------------------------------------------------------------------------
-Metric           Value
-P/E Ratio        8.01
-P/B Ratio        1.12
-ROE              13.9%
-Dividend Yield   4.81%
-Dividend Cover   2.58
-
-FUNDAMENTAL CHECKLIST
---------------------------------------------------------------------------------
-P/E Ratio < 22: ✅
-P/B Ratio < 1: ❌
-Book Value Increasing?: ✅
-Net Income Increasing?: ✅
-Total Assets Increasing?: ✅
-Shares Diluting? (No = ✓): ❌
-ROE > 10%: ✅
-
-VALUATION SCENARIOS (DCF, Required Return = 10%)
---------------------------------------------------------------------------------
-Zero Growth Fair Value: 126.10 PHP
-Current Price: 101.00 PHP
-Margin of Safety: 24.9%
+```bash
+curl http://127.0.0.1:8000/api/companies/?search=BPI
 ```
 
-*(A bar chart of YoY growth rates will also appear.)*
+### 3. Start the React frontend
+
+```bash
+cd frontend
+npm run dev
+```
+
+Open the URL shown in the terminal (typically `http://localhost:5173`). The dashboard fetches from `http://127.0.0.1:8000/api/companies/` — keep the Django server running.
 
 ---
 
-## 📋 Data Sources
+## Expected Output
+
+### Database
+
+After a successful pipeline run, SQLite contains:
+
+| Table | Contents |
+|-------|----------|
+| `companies` | Symbol, name, sector, market snapshot (price, P/E, P/B, ROE, etc.) |
+| `financials` | Per-year revenue, net income, EPS, book value, assets, liabilities |
+| `dividends` | Ex-date, payment date, amount, type |
+| `processing_log` | Per-company run status and error messages |
+
+### Web dashboard
+
+The React UI provides:
+
+- A searchable company registry with pagination
+- Per-company fundamental reports: growth overview, ratios, checklist, valuation, and charts
+
+### Optional CLI reports
+
+When enabled in `main.py`, `report_generator.py` also writes matplotlib bar charts to `reports/` and can print analysis to the console.
+
+---
+
+## Data Sources
 
 | Source | Data Retrieved |
 |--------|----------------|
 | `stockData.do` | Last price, market cap, outstanding shares |
-| `dividends_and_rights_list.ax` | Dividend history (ex‑date, rate, etc.) |
-| `search.ax` (Annual Report) | Disclosure list → Annual Reports (SEC Form 17‑A) |
-| `search.ax` (Shares) | Disclosure list → SEC Form 17‑C (share count changes) |
+| `dividends_and_rights_list.ax` | Dividend history (ex-date, rate, etc.) |
+| `search.ax` (Annual Report) | Disclosure list → Annual Reports (SEC Form 17-A) |
+| `search.ax` (Shares) | Disclosure list → SEC Form 17-C (share count changes) |
 | `openDiscViewer.do` → `downloadHtml.do` | HTML version of financial reports |
 
 ---
 
-## 🧠 Technical Challenges Overcome
+## Technical Challenges Overcome
 
 | Challenge | Solution |
 |-----------|----------|
-| **XHR‑based navigation** | Discovered and used `search.ax` and `dividends_and_rights_list.ax` endpoints |
+| **XHR-based navigation** | Discovered and used `search.ax` and `dividends_and_rights_list.ax` endpoints |
 | **Scale factor detection** | Parsed "Currency(and units)" notes in reports; applied multiplier to absolute metrics |
 | **Multiple years extraction** | Cleaned and merged tables, deduplicated by fiscal year |
-| **Edge‑case handling** | Gracefully handles missing data, negative values, and incomplete years |
-| **Rate limiting** | Built‑in random delays (`1.5–5.5s`) to avoid overloading servers |
+| **Missing stock-page ratios** | Filled P/E, P/B, price, and ROE from disclosure filing prices and financial ratios |
+| **Edge-case handling** | Gracefully handles missing data, negative values, and incomplete years |
+| **Rate limiting** | Built-in random delays (`1.5–5.5s`) to avoid overloading servers |
 
 ---
 
-## 🤖 LLM Acknowledgments
+## LLM Acknowledgments
 
 This project was developed with the assistance of **Large Language Models** (primarily Claude Sonnet, DeepSeek V4, and Gemini Flash 3.5) for:
+
 - Refactoring the initial script into a modular ETL pipeline
-- Designing error‑handling patterns and scale‑factor logic
-- Structuring the report generation and visualization functions
+- Designing error-handling patterns and scale-factor logic
+- Structuring report generation, persistence, and the web dashboard
 - Understanding and navigating PSE Edge's legacy architecture
 
-LLMs served as pair‑programming assistants to accelerate learning and implementation.
+LLMs served as pair-programming assistants to accelerate learning and implementation.
 
 ---
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This project is for **educational and personal research** purposes only. Users are responsible for complying with the `robots.txt` and Terms of Use of PSE Edge and any other websites accessed through this tool.
 
@@ -277,24 +301,22 @@ For full details, please read the [DISCLAIMER.md](DISCLAIMER.md).
 
 ---
 
-## 📝 License
+## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See [LICENSE.md](LICENSE.md) for details.
 
 ---
 
-## 🙏 Acknowledgements
+## Acknowledgements
 
 - **Philippine Stock Exchange (PSE)** for providing public access to financial data
-- The open‑source community for `requests`, `BeautifulSoup`, `pandas`, and `matplotlib`
+- The open-source community for `requests`, `BeautifulSoup`, `pandas`, `matplotlib`, Django, and React
 - The LLM providers that assisted with architecture and debugging
 
 ---
 
-## 📬 Contact
+## Contact
 
 Questions, suggestions, or concerns? Please [open an issue](https://github.com/SenjoNanaya/pse-dividend-analysis/issues) on GitHub.
 
 ---
-
-**Built with ❤️ for learning and Value Investing research.**

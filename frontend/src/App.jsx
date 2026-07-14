@@ -125,10 +125,6 @@ export default function App() {
             </button>
           </div>
         </div>
-
-        <div className="w-full text-center text-[10px] tracking-widest uppercase opacity-40">
-          © 2026 SQUARE_ENIX / PLATINUM_GAMES | ALL_RIGHTS_RESERVED
-        </div>
       </div>
     );
   }
