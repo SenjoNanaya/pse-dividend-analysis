@@ -21,7 +21,6 @@ class PSEScraper:
     
     def fetch_dividends(self, cmpy_id):
         logger.info(f"Fetching dividends for company: {cmpy_id}")
-        random_delay()
         
         headers = {
             **DEFAULT_HEADERS,
@@ -42,7 +41,6 @@ class PSEScraper:
     
     def fetch_disclosures_search(self, cmpy_id, disclosure_type):
         logger.info(f"Searching disclosures '{disclosure_type}' for company: {cmpy_id}")
-        random_delay()
 
         headers = {
             **DEFAULT_HEADERS,
@@ -63,7 +61,6 @@ class PSEScraper:
     
     def fetch_disclosure_viewer(self, edge_no):
         logger.info(f"Fetching disclosure viewer for edge_no: {edge_no}")
-        random_delay()
         
         params = {'edge_no': edge_no}
         
@@ -83,4 +80,10 @@ class PSEScraper:
             params = {'file_id': iframe_link}
             response = self.session.get(url, params=params, headers=headers)
             
+        return response.text
+    
+    def fetch_company_info(self, cmpy_id):
+        logger.info(f"Fetching company info for cmpy_id: {cmpy_id}")
+        url = f"{self.base_url}/companyInformation/form.do?cmpy_id={cmpy_id}"
+        response = self.session.get(url)
         return response.text

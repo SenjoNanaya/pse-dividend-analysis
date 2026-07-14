@@ -1,0 +1,12 @@
+/* Legacy unused tokens — kept in sync with index.css theme */
+@import "tailwindcss";
+
+@theme {
+  --color-nier-bg: #c8c2aa;
+  --color-nier-dark: #4d493e;
+  --color-nier-dark-muted: #5c574c;
+  --color-nier-light: #dcd8c0;
+  --color-nier-gray: #bab5a1;
+  --color-nier-orange: #a67c52;
+  --font-nier: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}

@@ -12,10 +12,11 @@ data/
 logs/
 test_data/
 tests/
+reports/
 # Except headers or configuration examples if you want to keep data/ structure intact
 !data/.gitkeep
 !logs/.gitkeep
-
+!tests/.gitkeep
 # ==========================================
 # Python Artifacts & Caches
 # ==========================================
@@ -45,3 +46,14 @@ ENV/
 *.swp
 .DS_Store
 Thumbs.db
+
+staticfiles/
+.cursor
+
+# ==========================================
+# Frontend (Vite / Node)
+# ==========================================
+node_modules/
+frontend/dist/
+frontend/dist-ssr/
+*.local
