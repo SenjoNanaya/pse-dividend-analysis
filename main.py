@@ -5,6 +5,7 @@ from src.utils import logger, random_delay
 from src import db 
 from src.db import get_connection, init_db
 from src import parser
+from src.report_metrics import compute_screening_summary
 
 def run_pipeline():
     # 1. Initialize database
@@ -47,6 +48,7 @@ def run_pipeline():
             company_info = parser.parse_company_info(company_info_html)
             
             stock_info['sector'] = company_info.get('sector')
+            subsector = company_info.get('subsector')
 
             div_html = scraper.fetch_dividends(cmpy_id)
             dividends = parser.parse_dividends(div_html)
@@ -97,13 +99,11 @@ def run_pipeline():
                         if year and shares:
                             historical_shares[year] = shares
             
-            # Merge shares into yearly_metrics
+            # Merge shares into yearly_metrics (do not invent empty fiscal years)
             for year, shares in historical_shares.items():
                 if year in yearly_metrics:
                     yearly_metrics[year]['outstanding_shares'] = shares
-                else:
-                    yearly_metrics[year] = {'outstanding_shares': shares}
-
+            
             # Fill blank stock-page P/E, P/B, price, ROE from disclosures
             stock_info = parser.resolve_valuation_fallbacks(
                 stock_info,
@@ -136,6 +136,7 @@ def run_pipeline():
                 cmpy_id,
                 company_name,
                 stock_info.get('sector'),
+                subsector=subsector,
                 snapshot={
                     'ticker': stock_info.get('ticker'),
                     'market_cap': stock_info.get('market_cap'),
@@ -147,26 +148,63 @@ def run_pipeline():
                 },
             )
             
-            # 6b. Insert financials for each year
+            # 6b. Insert financials for each year (skip share-only / empty shells)
+            financial_rows = []
             for year, metrics in yearly_metrics.items():
-                # Map your parser's keys to database column names
+                year_ratios = disclosure_ratios.get(year, {})
                 financial_data = {
                     'revenue': metrics.get('gross_revenue'),
                     'net_income': metrics.get('net_income'),
                     'eps': metrics.get('eps'),
                     'book_value': metrics.get('book_value_per_share'),
                     'total_assets': metrics.get('total_assets'),
-                    'total_liabilities': metrics.get('total_liabilities')
+                    'total_liabilities': metrics.get('total_liabilities'),
+                    'current_ratio': year_ratios.get('current_ratio'),
+                    'quick_ratio': year_ratios.get('quick_ratio'),
                 }
+                has_core = any(
+                    financial_data.get(k) is not None
+                    for k in (
+                        'revenue', 'net_income', 'eps', 'book_value',
+                        'total_assets', 'total_liabilities',
+                    )
+                )
+                if not has_core:
+                    continue
                 db.insert_financials(conn, company_id, year, financial_data)
+                financial_rows.append({'fiscal_year': year, **financial_data})
+
+            screening = compute_screening_summary(
+                {
+                    'name': company_name,
+                    'ticker': stock_info.get('ticker'),
+                    'pe_ratio': stock_info.get('pe_ratio'),
+                    'pb_ratio': stock_info.get('pb_ratio'),
+                    'roe': stock_info.get('roe'),
+                    'market_cap': stock_info.get('market_cap'),
+                    'outstanding_shares': stock_info.get('outstanding_shares'),
+                    'last_traded_price': stock_info.get('last_traded_price'),
+                },
+                financial_rows,
+            )
+            db.update_company_screening(
+                conn,
+                company_id,
+                screening['check_pass_count'],
+                screening['check_evaluable_total'],
+                screening['info_incomplete'],
+            )
             
-            # 6c. Insert dividends
+            # 6c. Insert dividends (common + preferred; yield uses is_common)
             for div in dividends:
                 dividend_data = {
                     'ex_date': div.get('ex_date'),
+                    'record_date': div.get('record_date'),
                     'payment_date': div.get('payment_date'),
                     'amount': div.get('rate'),
-                    'type': 'cash'  # Default to cash, you can detect 'stock' if needed
+                    'type': div.get('type', 'cash'),
+                    'security': div.get('security'),
+                    'is_common': div.get('is_common', True),
                 }
                 db.insert_dividend(conn, company_id, dividend_data)
             

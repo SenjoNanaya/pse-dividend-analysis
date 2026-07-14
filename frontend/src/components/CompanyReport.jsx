@@ -1,23 +1,6 @@
 import MetricBarChart from './MetricBarChart';
+import ChecklistPreview from './ChecklistPreview';
 import { buildReport, formatPct, formatPhp } from '../lib/metrics';
-
-function CheckCell({ item }) {
-  let mark = 'NA';
-  let cls = 'report-check-na';
-  if (item.pass === true) {
-    mark = '✓';
-    cls = 'report-check-pass';
-  } else if (item.pass === false) {
-    mark = '✗';
-    cls = 'report-check-fail';
-  }
-  return (
-    <div className="report-check-row">
-      <span className={`report-check-box ${cls}`}>{mark}</span>
-      <span>{item.label}</span>
-    </div>
-  );
-}
 
 export default function CompanyReport({ company, onBack }) {
   const report = buildReport(company);
@@ -26,9 +9,6 @@ export default function CompanyReport({ company, onBack }) {
     day: 'numeric',
     year: 'numeric',
   });
-
-  const leftChecks = report.checklist.slice(0, 5);
-  const rightChecks = report.checklist.slice(5);
 
   return (
     <div className="report-page animate-fade-in">
@@ -44,13 +24,15 @@ export default function CompanyReport({ company, onBack }) {
 
       <div className="report-title-bar">
         <div className="report-ticker">{report.displayTicker}</div>
+        <div className="report-title-center">
+          <div className="report-name-inline">{report.companyName}</div>
+          <ChecklistPreview report={report} compact showRatios />
+        </div>
         <div className="report-mcap">
           <div className="report-mcap-label">Market Cap</div>
           <div className="report-mcap-value">{report.marketCapLabel}</div>
         </div>
       </div>
-
-      <div className="report-name-line">{report.companyName}</div>
 
       <section className="report-section-label">Growth Overview</section>
 
@@ -138,28 +120,47 @@ export default function CompanyReport({ company, onBack }) {
           />
         </div>
 
-        <div className="report-div-check">
+        <div className="report-dividends-block">
           <MetricBarChart
-            title="Dividends"
+            title="Common Dividends / Year"
             data={report.charts.dividends}
             color="#ab9d72"
-            height={150}
+            height={140}
           />
-          <div className="report-checklist">
-            <div className="report-panel-title">Screening Checklist</div>
-            <div className="report-check-cols">
-              <div>
-                {leftChecks.map((item) => (
-                  <CheckCell key={item.label} item={item} />
-                ))}
-              </div>
-              <div>
-                {rightChecks.map((item) => (
-                  <CheckCell key={item.label} item={item} />
-                ))}
-              </div>
+          <div className="report-panel-title">Dividend History</div>
+          {report.dividend.history.length === 0 ? (
+            <div className="report-chart-empty" style={{ height: 80 }}>No data</div>
+          ) : (
+            <div className="report-div-table-wrap">
+              <table className="report-table report-div-table">
+                <thead>
+                  <tr>
+                    <th>Security</th>
+                    <th>Rate</th>
+                    <th>Ex-Date</th>
+                    <th>Record</th>
+                    <th>Payment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.dividend.history.slice(0, 12).map((row) => (
+                    <tr
+                      key={`${row.security}-${row.exDate}-${row.amount}`}
+                      className={row.isCommon ? '' : 'report-div-pref'}
+                    >
+                      <td title={row.security}>
+                        {row.isCommon ? 'COMMON' : row.security}
+                      </td>
+                      <td className="num">{formatPhp(row.amount, 4)}</td>
+                      <td>{row.exDate || '—'}</td>
+                      <td>{row.recordDate || '—'}</td>
+                      <td>{row.paymentDate || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="report-valuation">

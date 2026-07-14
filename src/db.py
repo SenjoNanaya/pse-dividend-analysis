@@ -32,6 +32,10 @@ def init_db():
             pe_ratio REAL,
             pb_ratio REAL,
             roe REAL,
+            subsector TEXT,
+            check_pass_count INTEGER,
+            check_evaluable_total INTEGER,
+            info_incomplete INTEGER,
             last_updated DATETIME
         )
     """)
@@ -49,10 +53,13 @@ def init_db():
             book_value REAL,
             total_assets REAL,
             total_liabilities REAL,
+            current_ratio REAL,
+            quick_ratio REAL,
             UNIQUE(company_id, fiscal_year),
             FOREIGN KEY(company_id) REFERENCES companies(id)
         )
     """)
+    _ensure_financial_columns(cursor)
     
     # Dividends table
     cursor.execute("""
@@ -60,12 +67,16 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             company_id INTEGER,
             ex_date DATE,
+            record_date DATE,
             payment_date DATE,
             amount REAL,
             type TEXT,
+            security TEXT,
+            is_common INTEGER,
             FOREIGN KEY(company_id) REFERENCES companies(id)
         )
     """)
+    _ensure_dividend_columns(cursor)
     
     # Processing log
     cursor.execute("""
@@ -98,8 +109,40 @@ def _ensure_company_columns(cursor):
         if col not in existing:
             cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {decl}")
 
+    for col, decl in (
+        ("subsector", "TEXT"),
+        ("check_pass_count", "INTEGER"),
+        ("check_evaluable_total", "INTEGER"),
+        ("info_incomplete", "INTEGER"),
+    ):
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {decl}")
 
-def get_or_create_company(conn, symbol, name, sector=None, snapshot=None):
+
+def _ensure_financial_columns(cursor):
+    """Add ratio columns on existing SQLite DBs created before they existed."""
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(financials)").fetchall()}
+    for col, decl in (
+        ("current_ratio", "REAL"),
+        ("quick_ratio", "REAL"),
+    ):
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE financials ADD COLUMN {col} {decl}")
+
+
+def _ensure_dividend_columns(cursor):
+    """Add dividend detail columns on existing SQLite DBs."""
+    existing = {row[1] for row in cursor.execute("PRAGMA table_info(dividends)").fetchall()}
+    for col, decl in (
+        ("record_date", "DATE"),
+        ("security", "TEXT"),
+        ("is_common", "INTEGER"),
+    ):
+        if col not in existing:
+            cursor.execute(f"ALTER TABLE dividends ADD COLUMN {col} {decl}")
+
+
+def get_or_create_company(conn, symbol, name, sector=None, subsector=None, snapshot=None):
     """Get company ID, or insert if not exists. Optional market snapshot updates."""
     cursor = conn.cursor()
     snapshot = snapshot or {}
@@ -111,7 +154,7 @@ def get_or_create_company(conn, symbol, name, sector=None, snapshot=None):
         company_id = row[0]
         cursor.execute("""
             UPDATE companies 
-            SET name = ?, sector = ?, ticker = COALESCE(?, ticker),
+            SET name = ?, sector = ?, subsector = COALESCE(?, subsector), ticker = COALESCE(?, ticker),
                 market_cap = COALESCE(?, market_cap),
                 outstanding_shares = COALESCE(?, outstanding_shares),
                 last_traded_price = COALESCE(?, last_traded_price),
@@ -123,6 +166,7 @@ def get_or_create_company(conn, symbol, name, sector=None, snapshot=None):
         """, (
             name,
             sector,
+            subsector,
             snapshot.get("ticker"),
             snapshot.get("market_cap"),
             snapshot.get("outstanding_shares"),
@@ -137,14 +181,15 @@ def get_or_create_company(conn, symbol, name, sector=None, snapshot=None):
 
     cursor.execute("""
         INSERT INTO companies (
-            symbol, name, sector, ticker, market_cap,
+            symbol, name, sector, subsector, ticker, market_cap,
             outstanding_shares, last_traded_price, pe_ratio, pb_ratio, roe, last_updated
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     """, (
         symbol,
         name,
         sector,
+        subsector,
         snapshot.get("ticker"),
         snapshot.get("market_cap"),
         snapshot.get("outstanding_shares"),
@@ -156,18 +201,37 @@ def get_or_create_company(conn, symbol, name, sector=None, snapshot=None):
     conn.commit()
     return cursor.lastrowid
 
+
+def update_company_screening(conn, company_id, check_pass_count, check_evaluable_total, info_incomplete):
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE companies
+        SET check_pass_count = ?,
+            check_evaluable_total = ?,
+            info_incomplete = ?
+        WHERE id = ?
+    """, (
+        check_pass_count,
+        check_evaluable_total,
+        1 if info_incomplete else 0,
+        company_id,
+    ))
+    conn.commit()
+
 def insert_financials(conn, company_id, fiscal_year, data):
     """
     Insert or replace financial data for a company/year.
-    data: dict with keys: revenue, net_income, eps, book_value, total_assets, total_liabilities
+    data: dict with keys: revenue, net_income, eps, book_value, total_assets,
+          total_liabilities, current_ratio, quick_ratio
     """
     cursor = conn.cursor()
     
     cursor.execute("""
         INSERT OR REPLACE INTO financials (
             company_id, fiscal_year, revenue, net_income, eps, 
-            book_value, total_assets, total_liabilities
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            book_value, total_assets, total_liabilities,
+            current_ratio, quick_ratio
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         company_id,
         fiscal_year,
@@ -176,48 +240,55 @@ def insert_financials(conn, company_id, fiscal_year, data):
         data.get('eps'),
         data.get('book_value'),
         data.get('total_assets'),
-        data.get('total_liabilities')
+        data.get('total_liabilities'),
+        data.get('current_ratio'),
+        data.get('quick_ratio'),
     ))
     conn.commit()
 
 def insert_dividend(conn, company_id, dividend_data):
     """
     Insert a dividend record.
-    dividend_data: dict with keys: ex_date, payment_date, amount, type
+    dividend_data: ex_date, record_date, payment_date, amount, type, security, is_common
     """
     cursor = conn.cursor()
-    
-    # Avoid duplicates: check if dividend already exists for this company on that ex_date
+    security = dividend_data.get('security') or 'COMMON'
+    is_common = 1 if dividend_data.get('is_common', True) else 0
+    ex_date = dividend_data.get('ex_date')
+    amount = dividend_data.get('amount')
+
     cursor.execute("""
-        SELECT id FROM dividends 
+        SELECT id FROM dividends
         WHERE company_id = ? AND ex_date = ?
-    """, (company_id, dividend_data.get('ex_date')))
-    
-    if cursor.fetchone():
-        # Update existing
+          AND COALESCE(security, '') = ?
+          AND (
+            (amount IS NULL AND ? IS NULL)
+            OR (amount IS NOT NULL AND ABS(amount - ?) < 1e-12)
+          )
+    """, (company_id, ex_date, security, amount, amount))
+
+    row = cursor.fetchone()
+    fields = (
+        dividend_data.get('record_date'),
+        dividend_data.get('payment_date'),
+        amount,
+        dividend_data.get('type', 'cash'),
+        security,
+        is_common,
+    )
+    if row:
         cursor.execute("""
-            UPDATE dividends 
-            SET payment_date = ?, amount = ?, type = ?
-            WHERE company_id = ? AND ex_date = ?
-        """, (
-            dividend_data.get('payment_date'),
-            dividend_data.get('amount'),
-            dividend_data.get('type', 'cash'),
-            company_id,
-            dividend_data.get('ex_date')
-        ))
+            UPDATE dividends
+            SET record_date = ?, payment_date = ?, amount = ?, type = ?,
+                security = ?, is_common = ?
+            WHERE id = ?
+        """, (*fields, row[0]))
     else:
-        # Insert new
         cursor.execute("""
-            INSERT INTO dividends (company_id, ex_date, payment_date, amount, type)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            company_id,
-            dividend_data.get('ex_date'),
-            dividend_data.get('payment_date'),
-            dividend_data.get('amount'),
-            dividend_data.get('type', 'cash')
-        ))
+            INSERT INTO dividends (
+                company_id, ex_date, record_date, payment_date, amount, type, security, is_common
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (company_id, ex_date, *fields))
     conn.commit()
 
 def log_processing(conn, company_id, status, error_message=None):

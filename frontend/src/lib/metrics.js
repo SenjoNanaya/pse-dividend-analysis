@@ -53,6 +53,21 @@ function sortedFinancials(financials = []) {
     .sort((a, b) => a.fiscal_year - b.fiscal_year);
 }
 
+/** Rows that have enough statement data for ratios / growth checks. */
+function hasCoreMetrics(f) {
+  return (
+    safeNum(f?.book_value) != null
+    || safeNum(f?.net_income) != null
+    || safeNum(f?.total_assets) != null
+    || safeNum(f?.revenue) != null
+    || safeNum(f?.eps) != null
+  );
+}
+
+function completeFinancials(financials = []) {
+  return sortedFinancials(financials).filter(hasCoreMetrics);
+}
+
 export function seriesByKey(financials, key) {
   return sortedFinancials(financials)
     .map((f) => ({
@@ -75,6 +90,7 @@ export function computeCagr(series) {
 export function dividendsByYear(dividends = []) {
   const map = new Map();
   for (const d of dividends) {
+    if (!isCommonDividend(d)) continue;
     const amount = safeNum(d.amount);
     if (amount == null || !d.ex_date) continue;
     const year = String(d.ex_date).slice(0, 4);
@@ -84,6 +100,29 @@ export function dividendsByYear(dividends = []) {
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([year, value]) => ({ year, value }));
+}
+
+function isCommonDividend(d) {
+  if (d.is_common === 0 || d.is_common === false) return false;
+  if (d.is_common === 1 || d.is_common === true) return true;
+  const sec = String(d.security || '').toUpperCase();
+  if (!sec) return true; // legacy rows treated as common
+  return sec === 'COMMON' || sec.startsWith('COMMON ');
+}
+
+export function dividendHistoryRows(dividends = []) {
+  return [...dividends]
+    .filter((d) => d.ex_date && safeNum(d.amount) != null)
+    .sort((a, b) => String(b.ex_date).localeCompare(String(a.ex_date)))
+    .map((d) => ({
+      security: d.security || (isCommonDividend(d) ? 'COMMON' : '—'),
+      isCommon: isCommonDividend(d),
+      type: d.type || 'cash',
+      amount: safeNum(d.amount),
+      exDate: d.ex_date,
+      recordDate: d.record_date || null,
+      paymentDate: d.payment_date || null,
+    }));
 }
 
 export function sanitizePrice(price, marketCap, shares) {
@@ -105,7 +144,7 @@ export function sanitizePrice(price, marketCap, shares) {
 }
 
 export function buildReport(company) {
-  const financials = sortedFinancials(company.financials || []);
+  const financials = completeFinancials(company.financials || []);
   const dividends = company.dividends || [];
 
   const bv = seriesByKey(financials, 'book_value');
@@ -143,7 +182,8 @@ export function buildReport(company) {
   const roe = roeScraped ?? roeComputed;
 
   const latestYear = latest?.fiscal_year != null ? String(latest.fiscal_year) : null;
-  const divInLatestYear = dividends
+  const commonDividends = dividends.filter(isCommonDividend);
+  const divInLatestYear = commonDividends
     .filter((d) => d.ex_date && String(d.ex_date).startsWith(latestYear || '____'))
     .reduce((sum, d) => sum + (safeNum(d.amount) || 0), 0);
 
@@ -194,9 +234,10 @@ export function buildReport(company) {
           : null,
     },
     { label: 'NO Share Dilution', pass: shares != null ? true : null },
-    { label: '5xCFO > T Debt', pass: null },
-    { label: 'FCF > ST+CPLT Debt', pass: null },
-    { label: 'Quick/Current R > 1', pass: null },
+    {
+      label: 'Quick/Current R > 1',
+      pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
+    },
     { label: 'ROE > 10%', pass: roe != null ? roe > 0.1 : null },
   ];
 
@@ -238,6 +279,7 @@ export function buildReport(company) {
       avgYield3y,
       cover: divCover,
       coverStatus: divCoverStatus,
+      history: dividendHistoryRows(dividends),
     },
     valuation: {
       yoyGrowthFv,
@@ -247,4 +289,23 @@ export function buildReport(company) {
     checklist,
     latestYear,
   };
+}
+
+export function evaluableChecklist(checklist = []) {
+  return checklist.filter((item) => item.pass !== null);
+}
+
+export function checklistScore(checklist = []) {
+  const evaluable = evaluableChecklist(checklist);
+  const pass = evaluable.filter((item) => item.pass === true).length;
+  return { pass, total: evaluable.length };
+}
+
+/** Pass if either current or quick ratio exceeds 1. */
+export function liquidityRatioPass(currentRatio, quickRatio) {
+  const cr = safeNum(currentRatio);
+  const qr = safeNum(quickRatio);
+  if (cr == null && qr == null) return null;
+  if ((cr != null && cr > 1) || (qr != null && qr > 1)) return true;
+  return false;
 }

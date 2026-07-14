@@ -137,6 +137,7 @@ def parse_financial_ratios_table(html_text):
         'net_profit_margin': ['net profit margin'],
         'gross_profit_margin': ['gross profit margin'],
         'current_ratio': ['current ratio', 'working capital ratio'],
+        'quick_ratio': ['quick ratio'],
         'debt_to_equity': ['debt-to-equity', 'debt to equity'],
     }
 
@@ -182,7 +183,14 @@ def resolve_valuation_fallbacks(stock_info, yearly_metrics, filing_prices=None, 
     filing_prices = filing_prices or []
     disclosure_ratios = disclosure_ratios or {}
 
-    years = sorted(yearly_metrics.keys()) if yearly_metrics else []
+    years = sorted(
+        y for y, m in (yearly_metrics or {}).items()
+        if m.get("eps") is not None
+        or m.get("book_value_per_share") is not None
+        or m.get("gross_revenue") is not None
+        or m.get("net_income") is not None
+        or m.get("total_assets") is not None
+    )
     latest_year = years[-1] if years else None
     latest = yearly_metrics.get(latest_year, {}) if latest_year else {}
     ratio_years = sorted(disclosure_ratios.keys())
@@ -288,8 +296,33 @@ def parse_stock_data(html_text):
         "stock_book_value": get_value_from_tables(tables, "Book Value", exact=True),
     }
 
+def _normalize_security_label(raw):
+    text = re.sub(r'\s+', ' ', str(raw or '').strip())
+    return text
+
+
+def _is_common_security(security):
+    """True for common equity rows; false for preferred / other series."""
+    label = _normalize_security_label(security).upper()
+    if not label:
+        return False
+    if label in {'COMMON', 'COMMON STOCK', 'COMMON SHARES'}:
+        return True
+    # Prefer series often labeled BRNP / Series A / Preferred
+    if 'PREFERRED' in label or 'SERIES' in label:
+        return False
+    if re.search(r'\bBRN[PCAB]?\b', label) and 'COMMON' not in label:
+        return False
+    return label.startswith('COMMON')
+
+
 def parse_dividends(html_text):
-    soup = BeautifulSoup(html_text, "lxml")
+    """
+    Parse PSE EDGE dividends_and_rights_list.ax HTML.
+    Returns all cash/stock rows (common + preferred) with dates.
+    Yields/cover should filter is_common=True.
+    """
+    soup = _make_soup(html_text)
     table = soup.find("table", class_="list")
     if not table:
         return []
@@ -297,27 +330,44 @@ def parse_dividends(html_text):
     df_list = pd.read_html(io.StringIO(str(table)), flavor="bs4")
     if not df_list:
         return []
-    
+
     df = df_list[0]
-    df_common = df[df['Type of Security'].str.upper() == 'COMMON'].copy()
-    
-    df_common['Dividend Rate'] = df_common['Dividend Rate'].astype(str).str.replace(r'[^\d.-]', '', regex=True)
-    df_common['Dividend Rate'] = pd.to_numeric(df_common['Dividend Rate'], errors='coerce')
-    
+    required = {
+        'Type of Security', 'Type of Dividend', 'Dividend Rate',
+        'Ex-Dividend Date', 'Record Date', 'Payment Date',
+    }
+    if not required.issubset(set(df.columns)):
+        return []
+
+    df = df.copy()
+    df['Dividend Rate'] = (
+        df['Dividend Rate'].astype(str).str.replace(r'[^\d.-]', '', regex=True)
+    )
+    df['Dividend Rate'] = pd.to_numeric(df['Dividend Rate'], errors='coerce')
     for col in ['Ex-Dividend Date', 'Record Date', 'Payment Date']:
-        df_common[col] = pd.to_datetime(df_common[col], errors='coerce')
-        
-    df_common = df_common.dropna(subset=['Ex-Dividend Date', 'Record Date', 'Payment Date', 'Dividend Rate'])
-    
+        df[col] = pd.to_datetime(df[col], errors='coerce')
+
+    # Keep rows with amount + ex-date; soft-require other dates when present
+    df = df.dropna(subset=['Ex-Dividend Date', 'Dividend Rate'])
+
     dividends = []
-    for _, row in df_common.iterrows():
+    for _, row in df.iterrows():
+        security = _normalize_security_label(row.get('Type of Security'))
+        div_type_raw = str(row.get('Type of Dividend') or 'Cash').strip().lower()
+        div_type = 'stock' if 'stock' in div_type_raw else 'cash'
+        record = row['Record Date']
+        payment = row['Payment Date']
         dividends.append({
+            'security': security,
+            'is_common': _is_common_security(security),
             'ex_date': row['Ex-Dividend Date'].strftime('%Y-%m-%d'),
-            'record_date': row['Record Date'].strftime('%Y-%m-%d'),
-            'payment_date': row['Payment Date'].strftime('%Y-%m-%d'),
+            'record_date': record.strftime('%Y-%m-%d') if pd.notna(record) else None,
+            'payment_date': payment.strftime('%Y-%m-%d') if pd.notna(payment) else None,
             'rate': float(row['Dividend Rate']),
+            'type': div_type,
         })
-    dividends.sort(key=lambda x: x['ex_date'])
+
+    dividends.sort(key=lambda x: (x['ex_date'], x.get('security') or ''))
     return dividends
 
 def parse_disclosure_edge_numbers(html_text):
@@ -337,33 +387,92 @@ def parse_iframe_source(html_text):
     return iframes[0]['src'] if iframes else None
 
 def clean_table(df):
-    if df.shape[1] < 3:
+    if df.shape[1] < 2:
         return pd.DataFrame()
+
     header_row_idx = None
-    for i in range(min(3, len(df))):
-        val = df.iloc[i, 1]
-        if isinstance(val, str) and re.search(r'\d{4}', val):
+    for i in range(min(5, len(df))):
+        row = df.iloc[i]
+        year_cells = [
+            c for c in row
+            if c is not None and not (isinstance(c, float) and pd.isna(c))
+            and re.search(r'\d{4}', str(c))
+        ]
+        if year_cells:
             header_row_idx = i
             break
     if header_row_idx is None:
-        header_row_idx = 0
-
-    years = df.iloc[header_row_idx, 1:].tolist()
-    df_clean = df.iloc[header_row_idx + 1:].copy()
-    if df_clean.empty:
         return pd.DataFrame()
 
-    df_clean = df_clean.set_index(df_clean.columns[0])
-    df_clean.columns = years
+    header_row = df.iloc[header_row_idx]
+    year_cols = []
+    years = []
+    for j, val in enumerate(header_row):
+        if val is not None and not (isinstance(val, float) and pd.isna(val)) and re.search(r'\d{4}', str(val)):
+            year_cols.append(j)
+            years.append(str(val))
+    if not year_cols:
+        return pd.DataFrame()
+
+    df_data = df.iloc[header_row_idx + 1 :]
+    if df_data.empty:
+        return pd.DataFrame()
+
+    # PSE tables: year headers may share col 0 with metric labels on data rows (values shift right by 1)
+    first_data_cell = df_data.iloc[0, 0]
+    header_col0_is_year = re.search(r'\d{4}', str(header_row.iloc[0] or ''))
+    data_col0_is_label = not re.search(r'\d{4}', str(first_data_cell or ''))
+    if header_col0_is_year and data_col0_is_label:
+        value_cols = [j + 1 for j in year_cols]
+        label_col = 0
+    else:
+        value_cols = year_cols
+        label_col = 0 if year_cols[0] > 0 else None
+        if label_col is None:
+            return pd.DataFrame()
+
+    if max(value_cols) >= df_data.shape[1]:
+        return pd.DataFrame()
+
+    labels = df_data.iloc[:, label_col].astype(str).tolist()
+    data = {years[i]: df_data.iloc[:, value_cols[i]].tolist() for i in range(len(years))}
+    df_clean = pd.DataFrame(data, index=labels)
 
     for col in df_clean.columns:
-        df_clean[col] = df_clean[col].astype(str).str.replace(',', '').str.strip()
-        df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+        series = df_clean[col]
+        if isinstance(series, pd.DataFrame):
+            series = series.iloc[:, 0]
+        converted = series.astype(str).str.replace(',', '').str.strip()
+        df_clean[col] = pd.to_numeric(converted, errors='coerce')
     return df_clean
+
+def _extract_metric_value(combined, col, pats, scale_factor, metric):
+    """
+    Pick the first matching row for a metric pattern list.
+    For net_income, skip zero placeholders (e.g. parent-attributable = 0 when after-tax holds the real figure).
+    """
+    skip_zero = metric == 'net_income'
+    fallback_zero = None
+    for pat in pats:
+        matches = [idx for idx in combined.index if pat.lower() in str(idx).lower()]
+        if not matches:
+            continue
+        val = combined.loc[matches[0], col]
+        if pd.isna(val):
+            continue
+        val = float(val) * scale_factor if metric in ABSOLUTE_METRICS else float(val)
+        if not skip_zero or val != 0:
+            return val
+        if fallback_zero is None:
+            fallback_zero = val
+    return fallback_zero
 
 def extract_all_years_metrics(tables_list, scale_factor=1):
     cleaned_tables = []
     for df in tables_list:
+        caption = (df.index.name or '').lower()
+        if 'financial ratios' in caption or 'other relevant' in caption:
+            continue
         cleaned = clean_table(df)
         if not cleaned.empty:
             cleaned_tables.append(cleaned)
@@ -380,7 +489,13 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
         'stockholders_equity': ['stockholders equity', "stockholders' equity", 'total equity'],
         'book_value_per_share': ['book value per share'],
         'gross_revenue': ['gross revenue'],
-        'net_income': ['net income attributable to parent', 'net income/(loss) attributable to parent', 'net income after tax', 'net income'],
+        'net_income': [
+            'net income/(loss) after tax',
+            'net income after tax',
+            'net income/(loss) attributable to parent',
+            'net income attributable to parent',
+            'net income',
+        ],
         'eps': ['earnings per share (basic)', 'earnings/(loss) per share (basic)', 'earnings per share', 'eps'],
     }
     
@@ -394,15 +509,9 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
         
         metrics = {}
         for metric, pats in patterns.items():
-            for pat in pats:
-                matches = [idx for idx in combined.index if pat.lower() in str(idx).lower()]
-                if matches:
-                    row_label = matches[0]
-                    val = combined.loc[row_label, col]
-                    if pd.notna(val):
-                        val = float(val) * scale_factor if metric in ABSOLUTE_METRICS else float(val)
-                        metrics[metric] = val
-                    break
+            val = _extract_metric_value(combined, col, pats, scale_factor, metric)
+            if val is not None:
+                metrics[metric] = val
         yearly_results[year] = metrics
     return yearly_results
 
@@ -486,21 +595,26 @@ def parse_report_html(html_text):
     }
 
 def parse_company_info(html_text):
-    # can change this to have more info down the line
     soup = _make_soup(html_text)
     sector = None
-    
+    subsector = None
+
     tables = soup.find_all("table", class_="view")
     for table in tables:
         caption = table.find("caption")
-        if caption and "Security Information" in caption.get_text():
-            for row in table.find_all("tr"):
-                th = row.find("th")
-                if th and "Sector" in th.get_text(strip=True):
-                    td = row.find("td")
-                    if td:
-                        sector = td.get_text(strip=True)
-                    break
-            break
-    
-    return {"sector": sector}
+        if not caption or "Security Information" not in caption.get_text():
+            continue
+        for row in table.find_all("tr"):
+            th = row.find("th")
+            td = row.find("td")
+            if not th or not td:
+                continue
+            label = th.get_text(strip=True).lower()
+            value = td.get_text(strip=True) or None
+            if "subsector" in label or "sub-sector" in label or "sub sector" in label:
+                subsector = value
+            elif label == "sector" or label.startswith("sector"):
+                sector = value
+        break
+
+    return {"sector": sector, "subsector": subsector}

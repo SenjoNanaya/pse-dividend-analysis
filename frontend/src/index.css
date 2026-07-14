@@ -82,6 +82,21 @@ body {
 .nier-table td {
   @apply p-4 text-xs tracking-wider uppercase border-b border-nier-gray/30 transition-colors duration-150;
 }
+.nier-sort-btn {
+  @apply bg-transparent border-0 p-0 m-0 w-full text-left uppercase tracking-widest text-xs font-bold cursor-pointer text-nier-bg;
+}
+.nier-sort-btn:hover {
+  @apply opacity-80;
+}
+.nier-sort-indicator {
+  @apply opacity-70 font-normal;
+}
+.nier-row-qualified {
+  background: color-mix(in srgb, var(--color-nier-orange) 18%, var(--color-nier-bg));
+}
+.nier-row-qualified:hover {
+  background: color-mix(in srgb, var(--color-nier-orange) 28%, var(--color-nier-bg));
+}
 
 /* ==========================================================================
    LAYOUT & STRUCTURAL COMPONENTS (no nested @apply of custom classes)
@@ -217,14 +232,14 @@ body {
 
 .report-title-bar {
   display: grid;
-  grid-template-columns: 1fr 220px;
+  grid-template-columns: auto 1fr 220px;
   border: 2px solid var(--color-nier-dark);
   margin: 10px 0 6px;
   background: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
 }
 
 .report-ticker {
-  font-size: clamp(2.4rem, 5vw, 3.6rem);
+  font-size: clamp(2rem, 4vw, 3rem);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -233,6 +248,76 @@ body {
   display: flex;
   align-items: center;
   color: var(--color-nier-orange);
+  white-space: nowrap;
+}
+
+.report-title-center {
+  border-left: 2px solid var(--color-nier-dark);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.report-name-inline {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+  line-height: 1.3;
+}
+
+.report-checklist-preview {
+  min-width: 0;
+}
+
+.report-checklist-preview-compact .report-check-cols-preview {
+  gap: 4px 12px;
+}
+
+.report-score-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 4px;
+}
+
+.report-score-badge {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border: 1px solid var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-light) 70%, transparent);
+}
+
+.report-ratio-strip {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
+
+.report-check-cols-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 16px;
+}
+
+.report-check-row-compact {
+  font-size: 9px;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+
+.report-check-row-compact .report-check-box {
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
 }
 
 .report-mcap {
@@ -256,13 +341,7 @@ body {
   line-height: 1.1;
 }
 
-.report-name-line {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.75;
-  margin-bottom: 10px;
-}
+/* removed: company name now lives in report-title-center */
 
 .report-section-label {
   font-size: 11px;
@@ -380,22 +459,37 @@ body {
   background: var(--color-nier-bg);
 }
 
-.report-div-check {
+.report-dividends-block {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.report-checklist {
   border: 1px solid var(--color-nier-dark);
-  padding: 10px;
+  padding: 8px;
   background: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
 }
 
-.report-check-cols {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
+.report-dividends-block .report-chart-card {
+  min-height: 140px;
+}
+
+.report-div-table-wrap {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--color-nier-gray);
+}
+
+.report-div-table {
+  font-size: 9px;
+}
+
+.report-div-table th,
+.report-div-table td {
+  padding: 3px 5px;
+  white-space: nowrap;
+}
+
+.report-div-pref td {
+  opacity: 0.7;
 }
 
 .report-check-row {
@@ -528,10 +622,25 @@ body {
   }
 
   .report-title-bar {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: auto auto;
+  }
+
+  .report-ticker {
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .report-mcap {
+    grid-column: 2;
+    grid-row: 1;
+    border-left: 2px solid var(--color-nier-dark);
+    border-top: none;
+  }
+
+  .report-title-center {
+    grid-column: 1 / -1;
+    grid-row: 2;
     border-left: none;
     border-top: 2px solid var(--color-nier-dark);
   }
@@ -539,8 +648,7 @@ body {
 
 @media (max-width: 640px) {
   .report-grid-charts,
-  .report-bottom-grid,
-  .report-check-cols {
+  .report-bottom-grid {
     grid-template-columns: 1fr;
   }
 }
