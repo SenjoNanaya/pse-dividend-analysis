@@ -35,6 +35,8 @@ def init_db():
             subsector TEXT,
             check_pass_count INTEGER,
             check_evaluable_total INTEGER,
+            check_struct_pass INTEGER,
+            check_struct_eval INTEGER,
             info_incomplete INTEGER,
             div_yield REAL,
             last_updated DATETIME
@@ -117,6 +119,8 @@ def _ensure_company_columns(cursor):
         ("check_evaluable_total", "INTEGER"),
         ("info_incomplete", "INTEGER"),
         ("div_yield", "REAL"),
+        ("check_struct_pass", "INTEGER"),
+        ("check_struct_eval", "INTEGER"),
     ):
         if col not in existing:
             cursor.execute(f"ALTER TABLE companies ADD COLUMN {col} {decl}")
@@ -206,20 +210,33 @@ def get_or_create_company(conn, symbol, name, sector=None, subsector=None, snaps
     return cursor.lastrowid
 
 
-def update_company_screening(conn, company_id, check_pass_count, check_evaluable_total, info_incomplete, div_yield=None):
+def update_company_screening(
+    conn,
+    company_id,
+    check_pass_count,
+    check_evaluable_total,
+    info_incomplete,
+    div_yield=None,
+    check_struct_pass=None,
+    check_struct_eval=None,
+):
     cursor = conn.cursor()
     cursor.execute("""
         UPDATE companies
         SET check_pass_count = ?,
             check_evaluable_total = ?,
             info_incomplete = ?,
-            div_yield = ?
+            div_yield = ?,
+            check_struct_pass = ?,
+            check_struct_eval = ?
         WHERE id = ?
     """, (
         check_pass_count,
         check_evaluable_total,
         1 if info_incomplete else 0,
         div_yield,
+        check_struct_pass,
+        check_struct_eval,
         company_id,
     ))
     conn.commit()

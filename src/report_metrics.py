@@ -4,6 +4,30 @@ from datetime import date, datetime, timedelta
 
 from src.utils import safe_float
 
+# Shared screening defaults — keep in sync with frontend/src/lib/metrics.js
+DEFAULT_THRESHOLDS = {
+    "pe_max": 22.0,
+    "pb_max": 1.0,
+    "roe_min": 0.10,
+}
+
+# Checklist order: 0 PE, 1 PB, 2–6 structural, 7 ROE
+STRUCT_CHECK_INDEXES = (2, 3, 4, 5, 6)
+
+
+def normalize_thresholds(thresholds=None):
+    """Merge partial thresholds with defaults (snake_case keys)."""
+    out = dict(DEFAULT_THRESHOLDS)
+    if not thresholds:
+        return out
+    if thresholds.get("pe_max") is not None:
+        out["pe_max"] = float(thresholds["pe_max"])
+    if thresholds.get("pb_max") is not None:
+        out["pb_max"] = float(thresholds["pb_max"])
+    if thresholds.get("roe_min") is not None:
+        out["roe_min"] = float(thresholds["roe_min"])
+    return out
+
 
 def _liquidity_ratio_pass(current_ratio, quick_ratio):
     cr = safe_float(current_ratio)
@@ -87,12 +111,71 @@ def no_share_dilution_pass(latest, prev):
     return a <= b * 1.001
 
 
-def build_checklist(company, financials):
+def sanitize_ratio(scraped):
+    """Drop absurd scraped PE/PB outliers (same rule as frontend)."""
+    v = safe_float(scraped)
+    if v is None or abs(v) > 1000:
+        return None
+    return v
+
+
+def ratio_pass_from_columns(pe_ratio, pb_ratio, roe, thresholds=None):
+    """
+    Evaluate PE/PB/ROE checks from persisted company columns only
+    (list API / hybrid rescore — no filing fallbacks).
+    Returns (pe_pass, pb_pass, roe_pass) each True/False/None.
+    """
+    t = normalize_thresholds(thresholds)
+    pe = sanitize_ratio(pe_ratio)
+    pb = sanitize_ratio(pb_ratio)
+    roe_v = safe_float(roe)
+    pe_pass = pe < t["pe_max"] if pe is not None else None
+    pb_pass = pb < t["pb_max"] if pb is not None else None
+    roe_pass = roe_v > t["roe_min"] if roe_v is not None else None
+    return pe_pass, pb_pass, roe_pass
+
+
+def merge_live_score(struct_pass, struct_eval, pe_pass, pb_pass, roe_pass):
+    """Combine stored structural scores with live ratio passes."""
+    passed = int(struct_pass or 0)
+    total = int(struct_eval or 0)
+    for p in (pe_pass, pb_pass, roe_pass):
+        if p is None:
+            continue
+        total += 1
+        if p is True:
+            passed += 1
+    return passed, total
+
+
+def structural_checklist_score(checklist):
+    """Pass/evaluable counts for structural checks only (indexes 2–6)."""
+    passed = 0
+    total = 0
+    for i in STRUCT_CHECK_INDEXES:
+        if i >= len(checklist):
+            break
+        p = checklist[i].get("pass")
+        if p is None:
+            continue
+        total += 1
+        if p is True:
+            passed += 1
+    return passed, total
+
+
+def build_checklist(company, financials, thresholds=None):
     """
     company: dict with pe_ratio, pb_ratio, roe, market_cap, outstanding_shares, last_traded_price
     financials: list of dicts with fiscal_year, book_value, net_income, total_assets,
                 current_ratio, quick_ratio, eps, outstanding_shares
+    thresholds: optional {pe_max, pb_max, roe_min}
     """
+    t = normalize_thresholds(thresholds)
+    pe_max = t["pe_max"]
+    pb_max = t["pb_max"]
+    roe_min = t["roe_min"]
+
     fin = _complete_financials(financials)
     latest = fin[-1] if fin else None
     prev = fin[-2] if len(fin) >= 2 else None
@@ -136,15 +219,25 @@ def build_checklist(company, financials):
             return None
         return a > b
 
+    roe_pct = int(round(roe_min * 100))
     return [
-        {"label": "P/E Ratio < 22", "pass": pe < 22 if pe is not None else None},
-        {"label": "P/B < 1", "pass": pb < 1 if pb is not None else None},
+        {
+            "label": f"P/E Ratio < {pe_max:g}",
+            "pass": pe < pe_max if pe is not None else None,
+        },
+        {
+            "label": f"P/B < {pb_max:g}",
+            "pass": pb < pb_max if pb is not None else None,
+        },
         {"label": "Increasing BV", "pass": _inc("book_value")},
         {"label": "Increasing Income", "pass": _inc("net_income")},
         {"label": "Increasing Assets", "pass": _inc("total_assets")},
         {"label": "NO Share Dilution", "pass": no_share_dilution_pass(latest, prev)},
         {"label": "Quick/Current R > 1", "pass": _liquidity_ratio_pass(current_ratio, quick_ratio)},
-        {"label": "ROE > 10%", "pass": roe > 0.1 if roe is not None else None},
+        {
+            "label": f"ROE > {roe_pct}%",
+            "pass": roe > roe_min if roe is not None else None,
+        },
     ]
 
 
@@ -307,9 +400,10 @@ def compute_div_yield(price, dividends, latest_fiscal_year=None, as_of=None):
     return annual_dps / price
 
 
-def compute_screening_summary(company, financials, dividends=None):
-    checklist = build_checklist(company, financials)
+def compute_screening_summary(company, financials, dividends=None, thresholds=None):
+    checklist = build_checklist(company, financials, thresholds=thresholds)
     passed, total = checklist_score(checklist)
+    struct_pass, struct_eval = structural_checklist_score(checklist)
     incomplete = is_info_incomplete(company, financials)
     div_yield = compute_div_yield(
         company.get("last_traded_price"),
@@ -318,6 +412,8 @@ def compute_screening_summary(company, financials, dividends=None):
     return {
         "check_pass_count": passed,
         "check_evaluable_total": total,
+        "check_struct_pass": struct_pass,
+        "check_struct_eval": struct_eval,
         "info_incomplete": incomplete,
         "div_yield": div_yield,
     }

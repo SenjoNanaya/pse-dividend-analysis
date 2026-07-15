@@ -1,7 +1,7 @@
 import ChecklistPreview from './ChecklistPreview';
 import { buildReport } from '../lib/metrics';
 
-export default function RegistryPreview({ company, status, onOpen, onClear }) {
+export default function RegistryPreview({ company, status, onOpen, onClear, thresholds }) {
   if (status === 'loading') {
     return (
       <div className="nier-outer-box h-full">
@@ -41,7 +41,7 @@ export default function RegistryPreview({ company, status, onOpen, onClear }) {
     );
   }
 
-  const report = buildReport(company);
+  const report = buildReport(company, thresholds);
 
   return (
     <aside className="nier-outer-box h-full" aria-label={`Preview ${report.displayTicker}`}>

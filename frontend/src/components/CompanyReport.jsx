@@ -2,8 +2,8 @@ import MetricBarChart from './MetricBarChart';
 import ChecklistPreview from './ChecklistPreview';
 import { buildReport, formatPct, formatPhp } from '../lib/metrics';
 
-export default function CompanyReport({ company, onBack }) {
-  const report = buildReport(company);
+export default function CompanyReport({ company, onBack, thresholds }) {
+  const report = buildReport(company, thresholds);
   const dateLabel = report.asOf.toLocaleDateString('en-US', {
     month: 'numeric',
     day: 'numeric',

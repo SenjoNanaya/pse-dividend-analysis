@@ -15,6 +15,8 @@ class Company(models.Model):
     roe = models.FloatField(blank=True, null=True)
     check_pass_count = models.IntegerField(blank=True, null=True)
     check_evaluable_total = models.IntegerField(blank=True, null=True)
+    check_struct_pass = models.IntegerField(blank=True, null=True)
+    check_struct_eval = models.IntegerField(blank=True, null=True)
     info_incomplete = models.IntegerField(blank=True, null=True)
     div_yield = models.FloatField(blank=True, null=True)
     last_updated = models.DateTimeField(blank=True, null=True)

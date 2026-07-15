@@ -870,11 +870,52 @@ body {
   text-transform: uppercase;
   opacity: 0.55;
 }
-@media (min-width: 900px) {
+@media (min-width: 700px) {
   .nier-filter-bar {
-    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: end;
   }
+}
+@media (min-width: 1100px) {
+  .nier-filter-bar {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.nier-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+@media (min-width: 1100px) {
+  .nier-filter-actions {
+    grid-column: auto;
+  }
+}
+.nier-threshold-field .nier-threshold-input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+}
+.nier-threshold-input::-webkit-outer-spin-button,
+.nier-threshold-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.nier-threshold-input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.nier-filter-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-nier-orange-ink);
 }
 .nier-filter-field {
   display: flex;
@@ -983,17 +1024,6 @@ body {
   outline: 2px solid var(--color-nier-dark);
   outline-offset: -2px;
   background: color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
-}
-.nier-filter-actions {
-  display: flex;
-  gap: 0.4rem;
-  align-items: end;
-  grid-column: 1 / -1;
-}
-@media (min-width: 900px) {
-  .nier-filter-actions {
-    grid-column: auto;
-  }
 }
 
 .nier-pagination-bar {

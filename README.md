@@ -52,6 +52,7 @@ The pipeline navigates PSE Edge's complex architecture:
 
 - **REST API** — paginated list with search, ordering, and filters; detail endpoint with financials and dividends; facet endpoint for filter options
 - **React registry** — sortable columns (price, market cap, yield, checks, …), sector / cap-tier / qualified / incomplete filters
+- **Screening thresholds** — freeform P/E, P/B, ROE %, and yield % inputs Apply to the list and rewrite Screening Preview / report checklist labels; CHECKS / &gt;5 PASS rescore live
 - **Row preview** — checklist + ratios without leaving the directory
 - **Compare matrix** — select up to 4 tickers; metrics table + YoY chart overlays
 - **Fundamental report** — growth charts, ratios, checklist, dividend history, simple fair-value scenarios
@@ -72,7 +73,8 @@ The pipeline navigates PSE Edge's complex architecture:
 ```
 Edge/
 ├── api/                        # Django REST app (unmanaged models → SQLite)
-│   ├── filters.py              # sector, cap_tier, qualified, incomplete
+│   ├── filters.py              # sector, cap_tier, thresholds, qualified, …
+│   ├── screening.py            # live CHECKS rescore helpers
 │   ├── models.py
 │   ├── serializers.py
 │   ├── views.py
@@ -89,7 +91,8 @@ Edge/
 ├── logs/                       # scraper.log (gitignored)
 ├── reports/                    # optional matplotlib output (gitignored)
 ├── scripts/
-│   └── backfill_div_yield.py   # recompute persisted div_yield
+│   ├── backfill_div_yield.py       # recompute persisted div_yield
+│   └── backfill_struct_checks.py   # structural checklist bits for live CHECKS
 ├── src/
 │   ├── scraper.py
 │   ├── parser.py
@@ -199,19 +202,37 @@ API base: `http://127.0.0.1:8000/`
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /api/companies/` | Paginated list (default ordering: checklist pass count) |
+| `GET /api/companies/` | Paginated list (default ordering: live checklist pass count) |
 | `GET /api/companies/?search=<q>` | Search symbol, name, ticker, sector, subsector |
-| `GET /api/companies/?ordering=div_yield` | Sort (prefix `-` for descending) |
-| `GET /api/companies/?sector=...&cap_tier=MID&qualified=true&incomplete=false` | Filters |
-| `GET /api/companies/facets/` | Distinct sectors / subsectors / cap tier labels |
+| `GET /api/companies/?ordering=div_yield` | Sort (prefix `-` for descending); checks use `live_check_pass` |
+| `GET /api/companies/?sector=...&cap_tier=MID&qualified=true&incomplete=false` | Registry filters |
+| `GET /api/companies/?pe_max=10&pb_max=0.5&roe_min=0.2&yield_min=0.04` | Screening thresholds |
+| `GET /api/companies/facets/` | Distinct sectors / subsectors / cap tier / threshold presets |
 | `GET /api/companies/<id>/` | Detail with financials and dividends |
 
 **Cap tiers** (by market cap, PHP): MICRO &lt; ₱3B · SMALL &lt; ₱20B · MID &lt; ₱100B · LARGE ≥ ₱100B.
 
+**Screening thresholds** (freeform numbers in the UI filter bar; Apply to commit):
+
+| UI field | API param | Checklist |
+|----------|-----------|-----------|
+| P/E max (e.g. `10`) | `pe_max` | `P/E Ratio < {n}` |
+| P/B max (e.g. `0.5`) | `pb_max` | `P/B < {n}` |
+| ROE min **%** (e.g. `20` → `0.2`) | `roe_min` (fraction) | `ROE > {n}%` |
+| Yield min **%** (e.g. `4` → `0.04`) | `yield_min` (fraction) | List filter only |
+
+Leave a field blank for “All” — checklist still uses classic defaults (P/E &lt; 22, P/B &lt; 1, ROE &gt; 10%). Invalid or negative values are rejected on Apply.
+
+**CHECKS / &gt;5 PASS** on the registry list are rescored live: persisted structural checks (growth, dilution, liquidity) plus PE/P/B/ROE evaluated against the request thresholds. After a scrape or schema change, run:
+
+```bash
+python scripts/backfill_struct_checks.py
+```
+
 Example:
 
 ```bash
-curl "http://127.0.0.1:8000/api/companies/?search=LTG&ordering=-div_yield"
+curl "http://127.0.0.1:8000/api/companies/?pe_max=10&roe_min=0.15&ordering=-live_check_pass"
 ```
 
 ### 3. Start the React frontend

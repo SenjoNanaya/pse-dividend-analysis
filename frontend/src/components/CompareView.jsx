@@ -56,13 +56,18 @@ function CompareCell({ children, best = false }) {
   );
 }
 
-export default function CompareView({ picks, onBack, onRemove, onOpen }) {
+export default function CompareView({ picks, onBack, onRemove, onOpen, thresholds }) {
   const [reports, setReports] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
   const [panel, setPanel] = useState('both'); // metrics | charts | both
 
   const pickKey = picks.map((p) => p.id).join(',');
+  const thresholdKey = [
+    thresholds?.peMax,
+    thresholds?.pbMax,
+    thresholds?.roeMin,
+  ].join('|');
 
   useEffect(() => {
     if (!picks.length) {
@@ -85,7 +90,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
     )
       .then((companies) => {
         if (cancelled) return;
-        setReports(companies.map((c) => buildReport(c)));
+        setReports(companies.map((c) => buildReport(c, thresholds)));
         setStatus('ready');
       })
       .catch((err) => {
@@ -95,7 +100,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
       });
 
     return () => { cancelled = true; };
-  }, [pickKey]); // eslint-disable-line react-hooks/exhaustive-deps -- pick ids only
+  }, [pickKey, thresholdKey]); // eslint-disable-line react-hooks/exhaustive-deps -- pick ids + thresholds
 
   if (status === 'loading' || status === 'idle') {
     return (

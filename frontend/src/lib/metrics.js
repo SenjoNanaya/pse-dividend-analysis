@@ -6,6 +6,24 @@ export function safeNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Keep in sync with src/report_metrics.py DEFAULT_THRESHOLDS */
+export const DEFAULT_THRESHOLDS = {
+  peMax: 22,
+  pbMax: 1,
+  roeMin: 0.1,
+};
+
+export function normalizeThresholds(thresholds) {
+  const peMax = safeNum(thresholds?.peMax);
+  const pbMax = safeNum(thresholds?.pbMax);
+  const roeMin = safeNum(thresholds?.roeMin);
+  return {
+    peMax: peMax != null ? peMax : DEFAULT_THRESHOLDS.peMax,
+    pbMax: pbMax != null ? pbMax : DEFAULT_THRESHOLDS.pbMax,
+    roeMin: roeMin != null ? roeMin : DEFAULT_THRESHOLDS.roeMin,
+  };
+}
+
 export function formatBillions(v, digits = 2) {
   const n = safeNum(v);
   if (n == null) return '—';
@@ -245,7 +263,8 @@ export function sanitizePrice(price, marketCap, shares) {
   return p;
 }
 
-export function buildReport(company) {
+export function buildReport(company, thresholds) {
+  const { peMax, pbMax, roeMin } = normalizeThresholds(thresholds);
   const financials = completeFinancials(company.financials || []);
   const dividends = company.dividends || [];
 
@@ -319,8 +338,14 @@ export function buildReport(company) {
   }
 
   const checklist = [
-    { label: 'P/E Ratio < 22', pass: pe != null ? pe < 22 : null },
-    { label: 'P/B < 1', pass: pb != null ? pb < 1 : null },
+    {
+      label: `P/E Ratio < ${Number(peMax)}`,
+      pass: pe != null ? pe < peMax : null,
+    },
+    {
+      label: `P/B < ${Number(pbMax)}`,
+      pass: pb != null ? pb < pbMax : null,
+    },
     {
       label: 'Increasing BV',
       pass:
@@ -347,7 +372,10 @@ export function buildReport(company) {
       label: 'Quick/Current R > 1',
       pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
     },
-    { label: 'ROE > 10%', pass: roe != null ? roe > 0.1 : null },
+    {
+      label: `ROE > ${Math.round(roeMin * 100)}%`,
+      pass: roe != null ? roe > roeMin : null,
+    },
   ];
 
   const incomeCagr = growth.income;

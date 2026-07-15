@@ -201,6 +201,8 @@ def run_pipeline():
                 screening['check_evaluable_total'],
                 screening['info_incomplete'],
                 div_yield=screening.get('div_yield'),
+                check_struct_pass=screening.get('check_struct_pass'),
+                check_struct_eval=screening.get('check_struct_eval'),
             )
             
             # 6c. Insert dividends (common + preferred; yield uses is_common)
