@@ -838,16 +838,32 @@ body {
   @apply max-w-2xl mx-auto flex flex-col gap-6 text-center lg:text-left my-auto;
 }
 
-.nier-dashboard-grid {
-  @apply grid grid-cols-1 lg:grid-cols-3 gap-8 items-start;
+.nier-dashboard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.nier-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
+}
+
+.nier-preview-slot {
+  width: 100%;
+}
+
+.nier-preview-slot .nier-outer-box {
+  min-height: 0;
 }
 
 .nier-table-column {
-  @apply lg:col-span-2 flex flex-col gap-6;
-}
-
-.nier-detail-column {
-  @apply lg:col-span-1 min-h-125;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  width: 100%;
 }
 
 .nier-search-form {
@@ -884,14 +900,10 @@ body {
 .nier-filter-actions {
   grid-column: 1 / -1;
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
-}
-@media (min-width: 1100px) {
-  .nier-filter-actions {
-    grid-column: auto;
-  }
 }
 .nier-threshold-field .nier-threshold-input {
   width: 100%;

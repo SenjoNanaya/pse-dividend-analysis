@@ -522,8 +522,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className="nier-dashboard-grid max-w-[90rem] mx-auto">
-        <div className="nier-table-column">
+      <div className="nier-dashboard-stack max-w-[90rem] mx-auto">
+        <div className="nier-controls">
           <form onSubmit={handleSearch} className="nier-search-form" role="search">
             <input
               type="text"
@@ -663,7 +663,19 @@ export default function App() {
               </div>
             </div>
           )}
+        </div>
 
+        <div className="nier-preview-slot">
+          <RegistryPreview
+            company={previewCompany}
+            status={previewStatus}
+            onOpen={openCompany}
+            onClear={clearPreview}
+            thresholds={appliedThresholds}
+          />
+        </div>
+
+        <div className="nier-table-column">
           <p className="nier-row-hint" aria-hidden="true">
             Row keys: Enter / Space = preview · O = open report · double-click = open
           </p>
@@ -821,16 +833,6 @@ export default function App() {
               ADVANCE_PAGE &gt;
             </button>
           </nav>
-        </div>
-
-        <div className="nier-detail-column">
-          <RegistryPreview
-            company={previewCompany}
-            status={previewStatus}
-            onOpen={openCompany}
-            onClear={clearPreview}
-            thresholds={appliedThresholds}
-          />
         </div>
       </div>
     </NierShell>
