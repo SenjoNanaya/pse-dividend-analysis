@@ -14,8 +14,8 @@ def main():
     conn = db.get_connection()
     cur = conn.cursor()
     companies = cur.execute(
-        "SELECT id, name, ticker, pe_ratio, pb_ratio, roe, market_cap, "
-        "outstanding_shares, last_traded_price FROM companies"
+        "SELECT id, name, ticker, sector, subsector, pe_ratio, pb_ratio, roe, "
+        "market_cap, outstanding_shares, last_traded_price FROM companies"
     ).fetchall()
 
     updated = 0
@@ -24,8 +24,8 @@ def main():
         fins = cur.execute(
             """
             SELECT fiscal_year, revenue, net_income, eps, book_value,
-                   total_assets, total_liabilities, current_ratio, quick_ratio,
-                   outstanding_shares
+                   total_assets, total_liabilities, stockholders_equity,
+                   current_ratio, quick_ratio, outstanding_shares
             FROM financials WHERE company_id = ? ORDER BY fiscal_year
             """,
             (cid,),
@@ -44,6 +44,8 @@ def main():
             {
                 "name": row["name"],
                 "ticker": row["ticker"],
+                "sector": row["sector"],
+                "subsector": row["subsector"],
                 "pe_ratio": row["pe_ratio"],
                 "pb_ratio": row["pb_ratio"],
                 "roe": row["roe"],
@@ -61,6 +63,8 @@ def main():
             screening["check_evaluable_total"],
             screening["info_incomplete"],
             div_yield=screening.get("div_yield"),
+            roic=screening.get("roic"),
+            debt_to_equity=screening.get("debt_to_equity"),
             check_struct_pass=screening.get("check_struct_pass"),
             check_struct_eval=screening.get("check_struct_eval"),
         )

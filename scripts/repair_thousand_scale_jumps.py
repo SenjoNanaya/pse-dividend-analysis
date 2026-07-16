@@ -90,6 +90,8 @@ def _rescreen(conn, company_id: int) -> None:
         screening["check_evaluable_total"],
         screening["info_incomplete"],
         div_yield=screening.get("div_yield"),
+        roic=screening.get("roic"),
+        debt_to_equity=screening.get("debt_to_equity"),
         check_struct_pass=screening.get("check_struct_pass"),
         check_struct_eval=screening.get("check_struct_eval"),
     )

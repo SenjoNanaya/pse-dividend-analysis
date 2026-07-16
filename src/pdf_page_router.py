@@ -177,7 +177,28 @@ def income_substance_score(text: str) -> int:
         )
     ):
         score += 2
-    if "cost of" in low or "operating expenses" in low or "general and administrative" in low:
+    # Extra weight for EBIT / G&A lines (PDF-first OI pass)
+    if any(
+        x in low
+        for x in (
+            "operating income",
+            "operating profit",
+            "income from operations",
+            "earnings before interest",
+        )
+    ):
+        score += 2
+    if any(
+        x in low
+        for x in (
+            "general and administrative",
+            "selling, general",
+            "selling general",
+            "sg&a",
+        )
+    ):
+        score += 2
+    elif "cost of" in low or "operating expenses" in low or "selling" in low:
         score += 1
     bare = count_large_amounts(text)
     if bare >= 6:
@@ -426,12 +447,17 @@ def _fallback_substance_scan(page_map: dict[int, str]) -> tuple[list[int], list[
 def detect_scale_factor(text: str) -> float:
     """Return multiplier for stated units (1 or 1e6 / 1e3)."""
     low = (text or "").lower()
-    if re.search(r"in\s+millions?\s+of\s+pesos", low) or re.search(
+    if re.search(r"in\s+millions?\s+of\s+(?:philippine\s+)?pesos?", low) or re.search(
         r"\(in\s+millions?\)", low
     ):
         return 1_000_000.0
-    if re.search(r"in\s+thousands?\s+of\s+pesos", low) or re.search(
+    if re.search(r"in\s+thousands?\s+of\s+(?:philippine\s+)?pesos?", low) or re.search(
         r"\(in\s+thousands?\)", low
     ):
         return 1_000.0
+    # Common 17-A wording: "All amounts in thousands of Philippine Peso"
+    if re.search(r"amounts?\s+in\s+thousands?", low):
+        return 1_000.0
+    if re.search(r"amounts?\s+in\s+millions?", low):
+        return 1_000_000.0
     return 1.0

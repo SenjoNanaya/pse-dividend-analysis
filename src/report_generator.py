@@ -6,8 +6,10 @@ from src.parser import sanitize_per_share_price
 from src.report_metrics import (
     compute_growth,
     earnings_usable_for_valuation,
+    equity_for_roe,
     metric_value,
     pe_check_pass,
+    prefer_roe,
     sanitize_pe_display,
     sanitize_roe_display,
 )
@@ -39,7 +41,13 @@ def generate_report(company_data):
     eps = metric_value(latest_data.get("eps"), "eps")
     book_value = safe_float(latest_data.get("book_value_per_share"))
     net_income = safe_float(latest_data.get("net_income"))
-    equity = safe_float(latest_data.get("stockholders_equity"))
+    # Map BVPS for equity_for_roe helper
+    latest_for_roe = {
+        **latest_data,
+        "book_value": book_value,
+        "outstanding_shares": safe_float(stock.get("outstanding_shares")),
+    }
+    equity = equity_for_roe(latest_for_roe, stock)
 
     stock["last_traded_price"] = safe_float(stock.get("last_traded_price"))
     stock["outstanding_shares"] = safe_float(stock.get("outstanding_shares"))
@@ -62,9 +70,10 @@ def generate_report(company_data):
         pe = stock["last_traded_price"] / eps
     if pb is None and book_value and stock["last_traded_price"]:
         pb = stock["last_traded_price"] / book_value
-    roe = safe_float(stock.get("roe"))
-    if roe is None and equity and net_income:
-        roe = net_income / equity
+    roe_computed = (
+        net_income / equity if equity and net_income is not None and abs(equity) > 0 else None
+    )
+    roe = prefer_roe(safe_float(stock.get("roe")), roe_computed)
     
     total_div_per_share = sum([d["rate"] for d in dividends if d["ex_date"].startswith(str(latest)[:4])])
     div_yield = (

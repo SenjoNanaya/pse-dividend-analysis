@@ -19,6 +19,8 @@ class Company(models.Model):
     check_struct_eval = models.IntegerField(blank=True, null=True)
     info_incomplete = models.IntegerField(blank=True, null=True)
     div_yield = models.FloatField(blank=True, null=True)
+    roic = models.FloatField(blank=True, null=True)
+    debt_to_equity = models.FloatField(blank=True, null=True)
     last_updated = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
@@ -64,6 +66,9 @@ class Financial(models.Model):
     income_tax_expense = models.FloatField(blank=True, null=True)
     gross_profit = models.FloatField(blank=True, null=True)
     ga_expense = models.FloatField(blank=True, null=True)
+    cost_of_sales = models.FloatField(blank=True, null=True)
+    interest_expense = models.FloatField(blank=True, null=True)
+    other_expenses = models.FloatField(blank=True, null=True)
     statement_scope = models.TextField(blank=True, null=True)
     current_ratio = models.FloatField(blank=True, null=True)
     quick_ratio = models.FloatField(blank=True, null=True)

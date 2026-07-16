@@ -13,7 +13,8 @@ class CompanySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'symbol', 'name', 'sector', 'subsector', 'ticker',
             'market_cap', 'outstanding_shares', 'last_traded_price',
-            'pe_ratio', 'pb_ratio', 'roe', 'div_yield', 'last_updated',
+            'pe_ratio', 'pb_ratio', 'roe', 'div_yield', 'roic', 'debt_to_equity',
+            'last_updated',
             'check_pass_count', 'check_evaluable_total', 'info_incomplete',
             'check_struct_pass', 'check_struct_eval',
             'passes_screen', 'cap_tier',
@@ -64,7 +65,8 @@ class FinancialSerializer(serializers.ModelSerializer):
             'book_value', 'total_assets', 'total_liabilities', 'stockholders_equity',
             'total_current_liabilities',
             'cash_and_equivalents', 'operating_income', 'income_before_tax',
-            'income_tax_expense', 'gross_profit', 'ga_expense', 'statement_scope',
+            'income_tax_expense', 'gross_profit', 'ga_expense',
+            'cost_of_sales', 'interest_expense', 'other_expenses', 'statement_scope',
             'current_ratio', 'quick_ratio', 'outstanding_shares',
         ]
 

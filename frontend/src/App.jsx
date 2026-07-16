@@ -41,6 +41,8 @@ const EMPTY_FILTERS = {
   pbMax: '', // absolute ratio
   roeMin: '', // percent in UI (20 = 20%)
   yieldMin: '', // percent in UI (4 = 4%)
+  roicMin: '', // percent in UI (8 = 8%)
+  deMax: '', // absolute D/E (liabilities ÷ equity)
 };
 
 const PE_PB_MAX = 1000;
@@ -58,18 +60,22 @@ function parseNonNeg(raw) {
 
 /**
  * Validate threshold draft fields.
- * Returns { ok, error, peMax, pbMax, roeMinFrac, yieldMinFrac }.
+ * Returns { ok, error, peMax, pbMax, roeMinFrac, yieldMinFrac, roicMinFrac, deMax }.
  */
 function parseThresholdFilters(filters) {
   const pe = parseNonNeg(filters.peMax);
   const pb = parseNonNeg(filters.pbMax);
   const roePct = parseNonNeg(filters.roeMin);
   const yieldPct = parseNonNeg(filters.yieldMin);
+  const roicPct = parseNonNeg(filters.roicMin);
+  const de = parseNonNeg(filters.deMax);
 
   if (!pe.ok) return { ok: false, error: 'P/E max must be a non-negative number.' };
   if (!pb.ok) return { ok: false, error: 'P/B max must be a non-negative number.' };
   if (!roePct.ok) return { ok: false, error: 'ROE min must be a non-negative percent.' };
   if (!yieldPct.ok) return { ok: false, error: 'Yield min must be a non-negative percent.' };
+  if (!roicPct.ok) return { ok: false, error: 'ROIC min must be a non-negative percent.' };
+  if (!de.ok) return { ok: false, error: 'D/E max must be a non-negative number.' };
 
   if (pe.value != null && pe.value > PE_PB_MAX) {
     return { ok: false, error: `P/E max must be ≤ ${PE_PB_MAX}.` };
@@ -83,6 +89,12 @@ function parseThresholdFilters(filters) {
   if (yieldPct.value != null && yieldPct.value > 1000) {
     return { ok: false, error: 'Yield min percent looks too large (use e.g. 4 for 4%).' };
   }
+  if (roicPct.value != null && roicPct.value > 1000) {
+    return { ok: false, error: 'ROIC min percent looks too large (use e.g. 8 for 8%).' };
+  }
+  if (de.value != null && de.value > PE_PB_MAX) {
+    return { ok: false, error: `D/E max must be ≤ ${PE_PB_MAX}.` };
+  }
 
   return {
     ok: true,
@@ -91,6 +103,8 @@ function parseThresholdFilters(filters) {
     pbMax: pb.value,
     roeMinFrac: roePct.value != null ? roePct.value / 100 : null,
     yieldMinFrac: yieldPct.value != null ? yieldPct.value / 100 : null,
+    roicMinFrac: roicPct.value != null ? roicPct.value / 100 : null,
+    deMax: de.value,
   };
 }
 
@@ -104,6 +118,7 @@ function screeningThresholds(filters) {
     peMax: parsed.peMax ?? undefined,
     pbMax: parsed.pbMax ?? undefined,
     roeMin: parsed.roeMinFrac ?? undefined,
+    deMax: parsed.deMax ?? undefined,
   });
 }
 
@@ -131,6 +146,8 @@ function buildListUrl({
     if (parsed.pbMax != null) params.set('pb_max', String(parsed.pbMax));
     if (parsed.roeMinFrac != null) params.set('roe_min', String(parsed.roeMinFrac));
     if (parsed.yieldMinFrac != null) params.set('yield_min', String(parsed.yieldMinFrac));
+    if (parsed.roicMinFrac != null) params.set('roic_min', String(parsed.roicMinFrac));
+    if (parsed.deMax != null) params.set('de_max', String(parsed.deMax));
   }
   const q = params.toString();
   return `${API_BASE}/${q ? `?${q}` : ''}`;
@@ -603,6 +620,20 @@ export default function App() {
               value={filters.yieldMin}
               onChange={(v) => handleFilterChange('yieldMin', v)}
               ariaLabel="Dividend yield minimum percent"
+            />
+            <ThresholdInput
+              label="ROIC MIN %"
+              hint="e.g. 8 — blank = any"
+              value={filters.roicMin}
+              onChange={(v) => handleFilterChange('roicMin', v)}
+              ariaLabel="ROIC minimum percent"
+            />
+            <ThresholdInput
+              label="D/E MAX"
+              hint="e.g. 1.5 — blank = default 2"
+              value={filters.deMax}
+              onChange={(v) => handleFilterChange('deMax', v)}
+              ariaLabel="Debt to equity maximum"
             />
             <div className="nier-filter-actions">
               <button type="button" className="nier-btn" onClick={applyFilters}>

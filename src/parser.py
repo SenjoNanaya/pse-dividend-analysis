@@ -1,4 +1,5 @@
 import io
+import math
 import re
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -17,10 +18,30 @@ ABSOLUTE_METRICS = [
     'income_tax_expense',
     'gross_profit',
     'ga_expense',
+    'cost_of_sales',
+    'interest_expense',
+    'other_expenses',
 ]
 
 # Profitability ratios on Form 17-A are usually reported as percentages (e.g. 14.54 = 14.54%).
+# Some EDGE tables already store fractions (0.19 = 19%) — see normalize_percent_ratio.
 PERCENT_RATIO_KEYS = {'roe', 'roa', 'net_profit_margin', 'gross_profit_margin'}
+
+
+def normalize_percent_ratio(raw_value) -> float | None:
+    """
+    Convert a Form 17-A profitability cell to a fraction.
+
+    |raw| > 1  → treat as percent points (14.54 → 0.1454)
+    |raw| <= 1 → already a fraction (0.19 → 0.19); do not /100 again
+    """
+    try:
+        val = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if abs(val) > 1.0:
+        return val / 100.0
+    return val
 
 def _make_soup(html_text):
     try:
@@ -181,8 +202,9 @@ def parse_financial_ratios_table(html_text):
             if val is None:
                 continue
             if metric_key in PERCENT_RATIO_KEYS:
-                # Form values like 14.54 mean 14.54%
-                val = val / 100.0
+                val = normalize_percent_ratio(val)
+                if val is None:
+                    continue
             results[year][metric_key] = val
 
     return {year: metrics for year, metrics in results.items() if metrics}
@@ -341,15 +363,54 @@ def _normalize_dividend_type(raw):
     return text.replace(" ", "_") or "cash"
 
 
+def _is_entitlement_or_share_payout_text(raw) -> bool:
+    """
+    True for property/stock entitlement prose (not a PHP cash DPS).
+
+    LFM-style: 'Every 1 share … entitlement of 97 shares of LFM Properties…'
+    Old digit-strip parsers turned that into cash rate 197 (1||97).
+    """
+    text = str(raw or "").strip().lower()
+    if not text:
+        return False
+    if "entitlement" in text:
+        return True
+    if "for every" in text and "share" in text:
+        return True
+    if re.search(r"\b\d+\s*shares?\s+of\b", text):
+        return True
+    if re.search(r"\b\d+\s*:\s*\d+\b", text) and "share" in text:
+        return True
+    if "property dividend" in text or "stock dividend" in text:
+        return True
+    return False
+
+
+def _digit_concat_trap(text: str, value: float) -> bool:
+    """True when value equals digits concatenated from multiple integers in text."""
+    ints = re.findall(r"\d+", text)
+    if len(ints) < 2:
+        return False
+    try:
+        joined = float("".join(ints))
+    except ValueError:
+        return False
+    return abs(joined - value) < 1e-9
+
+
 def _parse_dividend_rate(raw):
     """
     Extract per-share PHP amount from EDGE dividend rate cells.
 
     Prose like 'Thirteen and 51/100 centavos (Php0.1351) per share' must not
     be digit-stripped (that yields 511000.1351 from 51+100+0.1351).
+    Entitlement / share-ratio cells return None (not cash DPS).
     """
     text = str(raw or "").strip()
     if not text or text.lower() in {"nan", "none", "-", "–", "—"}:
+        return None
+
+    if _is_entitlement_or_share_payout_text(text):
         return None
 
     # Prefer explicit currency amount (Php0.1351 / PHP 1.25 / ₱0.50)
@@ -360,9 +421,11 @@ def _parse_dividend_rate(raw):
     )
     if currency:
         try:
-            return float(currency.group(1).replace(",", ""))
+            val = float(currency.group(1).replace(",", ""))
         except ValueError:
-            pass
+            val = None
+        if val is not None and not _digit_concat_trap(text, val):
+            return val
 
     # Simple numeric cell: "0.50" / "1.25"
     if re.fullmatch(r"[\d,]+(?:\.\d+)?", text):
@@ -380,8 +443,35 @@ def _parse_dividend_rate(raw):
             continue
         # Per-share cash rates are almost never huge integers formed from prose
         if 0 < val < 10_000 and ("." in c or val < 100):
+            if _digit_concat_trap(text, val):
+                continue
             return val
     return None
+
+
+def _scrub_cash_vs_property_siblings(dividends: list) -> list:
+    """
+    Drop cash rows that share an ex-date with a property/stock payout when the
+    cash 'rate' looks like an entitlement misparse (LFM 197 beside property).
+    """
+    non_cash_dates = {
+        d["ex_date"]
+        for d in dividends
+        if str(d.get("type") or "").lower() in ("property", "stock")
+    }
+    out = []
+    for d in dividends:
+        dtype = str(d.get("type") or "cash").lower()
+        rate = d.get("rate")
+        if (
+            dtype == "cash"
+            and d.get("ex_date") in non_cash_dates
+            and rate is not None
+            and float(rate) >= 5.0
+        ):
+            continue
+        out.append(d)
+    return out
 
 
 def parse_dividends(html_text):
@@ -410,17 +500,25 @@ def parse_dividends(html_text):
     df = df.copy()
     df['_div_type_raw'] = df['Type of Dividend'].astype(str)
     df['_rate_raw'] = df['Dividend Rate'].astype(str)
-    df['Dividend Rate'] = df['_rate_raw'].map(_parse_dividend_rate)
     for col in ['Ex-Dividend Date', 'Record Date', 'Payment Date']:
         df[col] = pd.to_datetime(df[col], errors='coerce')
 
-    # Keep rows with amount + ex-date; soft-require other dates when present
-    df = df.dropna(subset=['Ex-Dividend Date', 'Dividend Rate'])
+    df = df.dropna(subset=['Ex-Dividend Date'])
 
     dividends = []
     for _, row in df.iterrows():
         security = _normalize_security_label(row.get('Type of Security'))
         div_type = _normalize_dividend_type(row.get('_div_type_raw'))
+        rate_raw = row.get('_rate_raw')
+        if _is_entitlement_or_share_payout_text(rate_raw):
+            div_type = "property"
+        rate = _parse_dividend_rate(rate_raw)
+        # Property/stock entitlements may have no PHP rate — keep a marker row
+        if rate is None:
+            if div_type in ("property", "stock"):
+                rate = 0.0
+            else:
+                continue
         record = row['Record Date']
         payment = row['Payment Date']
         dividends.append({
@@ -429,15 +527,16 @@ def parse_dividends(html_text):
             'ex_date': row['Ex-Dividend Date'].strftime('%Y-%m-%d'),
             'record_date': record.strftime('%Y-%m-%d') if pd.notna(record) else None,
             'payment_date': payment.strftime('%Y-%m-%d') if pd.notna(payment) else None,
-            'rate': float(row['Dividend Rate']),
+            'rate': float(rate),
             'type': div_type,
         })
 
+    dividends = _scrub_cash_vs_property_siblings(dividends)
     dividends.sort(key=lambda x: (x['ex_date'], x.get('security') or ''))
     return dividends
 
 def parse_disclosure_edge_numbers(html_text):
-    soup = BeautifulSoup(html_text, "lxml")
+    soup = _make_soup(html_text)
     edge_no_tags = soup.find_all("a", href="#viewer", onclick=True)
     edge_numbers = []
     for item in edge_no_tags:
@@ -448,7 +547,7 @@ def parse_disclosure_edge_numbers(html_text):
     return edge_numbers
 
 def parse_iframe_source(html_text):
-    soup = BeautifulSoup(html_text, "lxml")
+    soup = _make_soup(html_text)
     iframes = soup.find_all('iframe')
     return iframes[0]['src'] if iframes else None
 
@@ -578,8 +677,42 @@ def _label_matches_metric(label, pat, metric):
         if pat.lower() == 'cash':
             if len(text.strip()) > 40:
                 return False
+    if metric in ('operating_income', 'gross_profit', 'ga_expense'):
+        if any(
+            x in text
+            for x in (
+                'share of',
+                'associate',
+                'joint venture',
+                'segment',
+                'margin',
+                'per share',
+                '%',
+            )
+        ):
+            return False
     if metric == 'operating_income':
         if 'working capital' in text or 'operating activities' in text:
+            return False
+        if 'discontinued' in text:
+            return False
+        # Bare EBIT only — avoid long notes prose
+        if pat.lower() == 'ebit' and len(text.strip()) > 24:
+            return False
+    if metric == 'ga_expense':
+        if 'cost of' in text or 'cost of sales' in text or 'cost of goods' in text:
+            return False
+        if 'operating activities' in text:
+            return False
+    if metric == 'interest_expense':
+        if 'interest income' in text or 'investment income' in text:
+            return False
+        if 'from financing' in text:
+            return False
+    if metric == 'other_expenses':
+        if len(text.strip()) > 48:
+            return False
+        if 'income' in text and 'operating' not in text:
             return False
     if metric == 'stockholders_equity':
         if 'liabilit' in text:
@@ -672,11 +805,132 @@ CASH_CF_ENDING_PATTERNS = [
 ]
 
 
-def _extract_metric_value(combined, col, pats, scale_factor, metric):
+# Metrics that score among multiple label matches using statement anchors.
+_SCORED_METRICS = frozenset({
+    'operating_income',
+    'gross_profit',
+    'ga_expense',
+    'cash_and_equivalents',
+})
+
+
+def _label_quality_bonus(label) -> float:
+    text = str(label).lower()
+    bonus = 0.0
+    if 'total' in text:
+        bonus += 2.0
+    if 'consolidated' in text:
+        bonus += 1.5
+    # Prefer shorter, cleaner labels over note prose
+    bonus += max(0.0, 2.0 - len(text) / 40.0)
+    return bonus
+
+
+def _collect_metric_candidates(combined, col, pats, scale_factor, metric):
+    """All (label, value) matches for a metric, de-duplicated by label."""
+    seen = set()
+    out = []
+    for pat in pats:
+        for idx in combined.index:
+            if not _label_matches_metric(idx, pat, metric):
+                continue
+            key = str(idx)
+            if key in seen:
+                continue
+            val = combined.loc[idx, col]
+            if pd.isna(val):
+                continue
+            try:
+                num = float(val)
+            except (TypeError, ValueError):
+                continue
+            if metric in ABSOLUTE_METRICS:
+                num *= scale_factor
+            seen.add(key)
+            out.append((key, num))
+    return out
+
+
+def _pick_scored_candidate(metric, candidates, anchors):
     """
-    Pick the first matching row for a metric pattern list.
-    For net_income, skip zero placeholders (e.g. parent-attributable = 0 when after-tax holds the real figure).
+    Choose best candidate using anchors (ibt/ni/revenue/assets).
+    Returns None when no candidate clears the band (never keep a known-bad first hit).
     """
+    if not candidates:
+        return None
+    ibt = anchors.get('income_before_tax')
+    ni = anchors.get('net_income')
+    rev = anchors.get('revenue')
+    if rev is None:
+        rev = anchors.get('gross_revenue')
+    assets = anchors.get('total_assets')
+    gp = anchors.get('gross_profit')
+
+    scored = []
+    for label, val in candidates:
+        if val is None:
+            continue
+        abs_v = abs(val)
+        if abs_v < 1e-9 and metric != 'net_income':
+            continue
+        q = _label_quality_bonus(label)
+        if metric == 'operating_income':
+            anchor = ibt if ibt is not None else ni
+            if anchor is not None and abs(anchor) >= 1_000_000:
+                if not (0.4 * abs(anchor) <= abs_v <= 5.0 * abs(anchor)):
+                    continue
+                # closer to anchor is better
+                dist = abs(math.log10(abs_v) - math.log10(abs(anchor)))
+                scored.append((dist - q * 0.05, -q, val))
+            else:
+                scored.append((0.0 - q * 0.05, -q, val))
+        elif metric == 'gross_profit':
+            if rev is not None and abs(rev) >= 1_000_000:
+                if not (0.05 * abs(rev) <= abs_v <= 1.05 * abs(rev)):
+                    continue
+                dist = abs(math.log10(abs_v) - math.log10(abs(rev) * 0.4))
+                scored.append((dist - q * 0.05, -q, val))
+            elif ni is not None and abs(ni) >= 1_000_000:
+                if abs_v > 50.0 * abs(ni):
+                    continue
+                scored.append((0.0 - q * 0.05, -q, val))
+            else:
+                scored.append((0.0 - q * 0.05, -q, val))
+        elif metric == 'ga_expense':
+            if rev is not None and abs(rev) >= 1_000_000 and abs_v > 0.8 * abs(rev):
+                continue
+            # GA can exceed GP (operating loss); only reject absurd multiples
+            if gp is not None and abs(gp) > 0 and abs_v > abs(gp) * 5.0:
+                continue
+            scored.append((0.0 - q * 0.05, -q, val))
+        elif metric == 'cash_and_equivalents':
+            if assets is not None and abs(assets) >= 1_000_000:
+                # Parents/holdcos can be cash-heavy; reject only absurd multiples
+                if not (0.001 * abs(assets) <= abs_v <= 0.95 * abs(assets)):
+                    continue
+            if 1990 <= abs_v <= 2100 and abs(abs_v - round(abs_v)) < 1e-9:
+                continue
+            scored.append((0.0 - q * 0.05, -q, val))
+        else:
+            scored.append((0.0 - q * 0.05, -q, val))
+
+    if not scored:
+        return None
+    scored.sort()
+    return scored[0][2]
+
+
+def _extract_metric_value(combined, col, pats, scale_factor, metric, anchors=None):
+    """
+    Pick a matching row for a metric pattern list.
+
+    For operating_income / gross_profit / ga_expense / cash: score all candidates
+    against anchors when provided. For net_income: skip zero placeholders.
+    """
+    if metric in _SCORED_METRICS and anchors is not None:
+        cands = _collect_metric_candidates(combined, col, pats, scale_factor, metric)
+        return _pick_scored_candidate(metric, cands, anchors)
+
     skip_zero = metric == 'net_income'
     fallback_zero = None
     for pat in pats:
@@ -807,12 +1061,26 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
             'operating income',
             'operating profit',
             'income from operations',
+            'earnings before interest and tax',
+            'earnings before interest and taxes',
+            'ebit',
         ],
-        'gross_profit': ['gross profit'],
+        'gross_profit': [
+            'gross profit',
+            'gross income',
+        ],
         'ga_expense': [
+            'selling general and administrative expenses',
+            'selling, general and administrative expenses',
+            'selling general and administrative',
+            'sg&a expenses',
+            'sg&a',
             'general and administrative expenses',
             'general and administrative expense',
+            'general & administrative expenses',
             'general and administrative',
+            'administrative expenses',
+            'administrative expense',
         ],
         'income_before_tax': [
             'income/(loss) before tax',
@@ -823,6 +1091,24 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
             'provision for income tax',
             'income tax expense',
             'provision for tax',
+        ],
+        'cost_of_sales': [
+            'cost of real estate sales',
+            'cost of real estate',
+            'cost of goods sold',
+            'cost of sales',
+            'cost of services',
+        ],
+        'interest_expense': [
+            'interest and other financing charges',
+            'interest and financing charges',
+            'finance costs',
+            'financing charges',
+            'interest expense',
+        ],
+        'other_expenses': [
+            'other operating expenses',
+            'other expenses',
         ],
         'book_value_per_share': ['book value per share'],
         'gross_revenue': ['gross revenue'],
@@ -844,19 +1130,52 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
         if year in yearly_results:
             continue
         
+        # Pass 1: anchors and non-scored fields (OI/GP/GA/cash need IBT/NI/A)
         metrics = {}
         for metric, pats in patterns.items():
+            if metric in _SCORED_METRICS:
+                continue
             val = _extract_metric_value(combined, col, pats, scale_factor, metric)
             if val is not None:
                 metrics[metric] = val
+        # Pass 2: scored fields with anchors from pass 1
+        anchors = dict(metrics)
+        for metric in (
+            'gross_profit',
+            'ga_expense',
+            'operating_income',
+            'cash_and_equivalents',
+        ):
+            pats = patterns.get(metric)
+            if not pats:
+                continue
+            # Refresh GP into anchors before OI/GA scoring when available
+            if metric == 'ga_expense' and metrics.get('gross_profit') is not None:
+                anchors['gross_profit'] = metrics['gross_profit']
+            val = _extract_metric_value(
+                combined, col, pats, scale_factor, metric, anchors=anchors
+            )
+            if val is not None:
+                metrics[metric] = val
+                anchors[metric] = val
         # CF ending-cash fallback when balance-sheet cash line is absent
         if metrics.get("cash_and_equivalents") is None:
             cf_cash = _extract_metric_value(
-                combined, col, CASH_CF_ENDING_PATTERNS, scale_factor, "cash_and_equivalents"
+                combined,
+                col,
+                CASH_CF_ENDING_PATTERNS,
+                scale_factor,
+                "cash_and_equivalents",
+                anchors=anchors,
             )
             if cf_cash is not None:
                 metrics["cash_and_equivalents"] = cf_cash
-        yearly_results[year] = _reconcile_balance_sheet(metrics)
+        from src.report_metrics import sanitize_operating_metrics
+        from src.scale_guard import harmonize_intra_year_pl_scale
+
+        metrics = _reconcile_balance_sheet(metrics)
+        harmonize_intra_year_pl_scale(metrics)
+        yearly_results[year] = sanitize_operating_metrics(metrics)
     return yearly_results
 
 def parse_report_html(html_text):

@@ -291,6 +291,125 @@ def test_page_router_rejects_pfrs_and_mda():
     assert routed_spc["scope_hint"] == "parent"
 
 
+def test_nopat_synonym_labels():
+    from src.parser import _label_matches_metric
+    from src.pdf_roic_extract import match_whitelist_field, rows_to_yearly_metrics
+
+    assert _label_matches_metric(
+        "Earnings before interest and taxes",
+        "earnings before interest and taxes",
+        "operating_income",
+    )
+    assert _label_matches_metric("EBIT", "ebit", "operating_income")
+    assert not _label_matches_metric(
+        "Income from discontinued operations",
+        "income from continuing operations",
+        "operating_income",
+    )
+    assert _label_matches_metric(
+        "Selling, general and administrative expenses",
+        "selling, general and administrative expenses",
+        "ga_expense",
+    )
+    assert match_whitelist_field("Income from operations") == "operating_income"
+    assert match_whitelist_field("SG&A expenses") == "ga_expense"
+    assert match_whitelist_field("Cash flows from operating activities") is None
+    # Continuing ops is not an OI synonym (non-ops / after-items trap)
+    assert match_whitelist_field("Income from continuing operations") is None
+
+    # PDF yearly path: abs(GA) + derive when scraped OI fails vs GP
+    yearly = rows_to_yearly_metrics(
+        [
+            {
+                "label": "Gross profit",
+                "values": {2025: 72_866_661.0},
+            },
+            {
+                "label": "General and administrative expenses",
+                "values": {2025: -105_121_007.0},
+            },
+            {
+                "label": "Operating income",
+                "values": {2025: 1_375_716_349.0},
+            },
+        ],
+        scale=1.0,
+        statement_scope="consolidated",
+    )
+    assert yearly[2025]["ga_expense"] == 105_121_007.0
+    assert abs(yearly[2025]["operating_income"] - (72_866_661.0 - 105_121_007.0)) < 1
+    assert yearly[2025].get("operating_income_derived") is True
+
+
+def test_ali_style_construct_ebit_from_fixture():
+    from src.pdf_adapters.notes_column import parse_notes_column
+    from src.pdf_adapters.sequential_p import parse_sequential_p
+    from src.pdf_roic_extract import (
+        choose_adapter,
+        match_whitelist_field,
+        rows_to_yearly_metrics,
+    )
+    from src.report_metrics import sanitize_operating_metrics
+
+    text = open(os.path.join(FIX, "synthetic_ali_style_is.txt"), encoding="utf-8").read()
+    assert match_whitelist_field("Interest and other financing charges") == "interest_expense"
+    adapter = choose_adapter(text)
+    parse = parse_notes_column if adapter == "notes_column" else parse_sequential_p
+    yearly = rows_to_yearly_metrics(
+        parse(text, years=[2025, 2024, 2023]),
+        scale=1000.0,
+        statement_scope="consolidated",
+    )
+    assert 2025 in yearly
+    # Seed HTML-scale revenue so GP/OI synthesis has anchors
+    yearly[2025]["revenue"] = 190_210_680_000.0
+    yearly[2025]["net_income"] = 45_554_129_000.0
+    out = sanitize_operating_metrics(
+        yearly[2025], company={"sector": "Property"}
+    )
+    assert out.get("cost_of_sales") is not None
+    assert out.get("interest_expense") is not None
+    assert abs(out["interest_expense"] - 17_267_715_000.0) < 1_000
+    assert out.get("operating_income") is not None
+    assert abs(out["operating_income"] - (out["income_before_tax"] + out["interest_expense"])) < 1
+    assert out.get("gross_profit") is not None
+
+
+def test_income_substance_and_synthetic_oi_near_ibt():
+    from src.pdf_adapters.sequential_p import parse_sequential_p
+    from src.pdf_page_router import income_substance_score
+    from src.pdf_roic_extract import fill_html_whitelist, rows_to_yearly_metrics
+
+    text = open(os.path.join(FIX, "synthetic_income_oi.txt"), encoding="utf-8").read()
+    assert income_substance_score(text) >= 5
+    yearly = rows_to_yearly_metrics(
+        parse_sequential_p(text, years=[2025, 2024]),
+        scale=1.0,
+        statement_scope="consolidated",
+    )
+    assert 2025 in yearly
+    oi = yearly[2025].get("operating_income")
+    assert oi is not None
+    assert abs(oi - 52_000_000_000) < 1
+
+    html = {
+        2025: {
+            "revenue": 190_000_000_000.0,
+            "operating_income": 13_000_000_000.0,
+            "net_income": 45_000_000_000.0,
+            "income_before_tax": 56_000_000_000.0,
+            "total_assets": 900_000_000_000.0,
+            "cash_and_equivalents": 19_000_000_000.0,
+        }
+    }
+    merged = fill_html_whitelist(
+        html,
+        {2025: {"operating_income": oi}},
+        company={"sector": "Property", "subsector": "Property"},
+    )
+    assert abs(merged[2025]["operating_income"] - 52_000_000_000) < 1
+
+
 def test_thousand_scale_guard():
     from src.scale_guard import has_thousand_scale_jump, repair_thousand_scale_jumps
 
@@ -378,5 +497,8 @@ if __name__ == "__main__":
     test_html_cash_labels_and_year_junk()
     test_ocr_sparse_detect_and_soft_skip()
     test_page_router_rejects_pfrs_and_mda()
+    test_nopat_synonym_labels()
+    test_ali_style_construct_ebit_from_fixture()
+    test_income_substance_and_synthetic_oi_near_ibt()
     test_thousand_scale_guard()
     print("ok")

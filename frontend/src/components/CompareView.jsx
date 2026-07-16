@@ -67,6 +67,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
     thresholds?.peMax,
     thresholds?.pbMax,
     thresholds?.roeMin,
+    thresholds?.deMax,
   ].join('|');
 
   useEffect(() => {
@@ -124,7 +125,13 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
   const peBest = bestIndex(reports.map((r) => r.ratios.pe), 'min');
   const pbBest = bestIndex(reports.map((r) => r.ratios.pb), 'min');
   const roeBest = bestIndex(reports.map((r) => r.ratios.roe), 'max');
-  const roicBest = bestIndex(reports.map((r) => r.ratios.roic), 'max');
+  // Proxy ROIC must not win "best" against proper NOPAT-based ROIC
+  const roicBest = bestIndex(
+    reports.map((r) =>
+      r.roicMeta?.mode === 'proper' ? r.ratios.roic : null,
+    ),
+    'max',
+  );
   const yieldBest = bestIndex(reports.map((r) => r.divYield), 'max');
   const checksBest = bestIndex(
     reports.map((r) => r.checklistScore?.pass ?? null),
@@ -300,6 +307,15 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                     {reports.map((r, i) => (
                       <CompareCell key={r.companyId} best={i === roicBest}>
                         {formatPct(r.ratios.roic)}
+                        {r.roicMeta?.mode === 'proxy' ? (
+                          <span className="compare-roic-mode"> (proxy)</span>
+                        ) : null}
+                        {r.roicMeta?.mode === 'equity' ? (
+                          <span className="compare-roic-mode"> (equity)</span>
+                        ) : null}
+                        {r.roicMeta?.mode === 'na' ? (
+                          <span className="compare-roic-mode"> (n/a)</span>
+                        ) : null}
                       </CompareCell>
                     ))}
                   </tr>
@@ -387,7 +403,8 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
               </table>
             </div>
             <p className="compare-note">
-              Orange highlight = best among the set (lowest P/E, P/B &amp; liabilities CAGR; highest yield, ROE, ROIC, checks, other CAGRs).
+              Orange highlight = best among the set (lowest P/E, P/B &amp; liabilities CAGR; highest yield, ROE, proper ROIC only, checks, other CAGRs).
+              Proxy ROIC and bank equity-capital returns are shown for context but cannot win the ROIC highlight.
               Click a ticker to open its full record.
             </p>
           </div>

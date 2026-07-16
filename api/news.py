@@ -24,12 +24,198 @@ UNWRAP_TIMEOUT = 4
 # Tickers this short are common English words / noisy in Google News
 AMBIGUOUS_TICKER_LEN = 3
 
+# Longer PSE codes that are also everyday English — "rock Philippines" ≠ ROCK
+_ENGLISH_WORD_TICKERS = frozenset(
+    {
+        "ROCK",
+        "HOME",
+        "FOOD",
+        "PURE",
+        "PRIME",
+        "WORLD",
+        "SUN",
+        "STAR",
+        "LAND",
+        "WATER",
+        "POWER",
+        "GOLD",
+        "SILVER",
+        "METRO",
+        "DELTA",
+        "ALPHA",
+        "CROWN",
+        "UNION",
+        "PACIFIC",
+        "GLOBAL",
+        "FIRST",
+        "NATIONAL",
+        "CENTRAL",
+        "VISTA",
+        "CREST",
+        "EDGE",
+        "PLUS",
+        "MAX",
+        "NEXT",
+        "OPEN",
+        "TECH",
+        "DATA",
+        "MEDIA",
+        "HOUSE",
+        "PLACE",
+        "POINT",
+        "PORT",
+        "CITY",
+        "TOWN",
+        "GREEN",
+        "BLUE",
+        "WHITE",
+        "BLACK",
+        "LIGHT",
+        "NICKEL",
+        "COPPER",
+        "IRON",
+        "COAL",
+        "OIL",
+        "GAS",
+        "ENERGY",
+        "MINING",
+        "BANK",
+        "TRUST",
+        "LIFE",
+        "CARE",
+        "HEALTH",
+        "PHONE",
+        "LINK",
+        "NET",
+        "WEB",
+        "APP",
+        "NOW",
+        "ALL",
+        "ONE",
+        "TOP",
+        "BEST",
+        "NEW",
+        "OLD",
+        "BIG",
+        "ACE",
+        "AIM",
+        "ASK",
+        "ATM",
+        "BBC",
+        "CEO",
+        "CPI",
+        "GDP",
+        "IPO",
+        "SEC",
+        "PSE",  # meta — never treat alone as issuer identity in prose
+    }
+)
+
 _PH_MARKERS = (
     "pse",
     "philippines",
     "philippine",
     "manila",
     "edge.pse",
+)
+
+# Quote / chart / screener pages — not articles (TradingView, Yahoo quote, …)
+_NON_NEWS_HOST_FRAGMENTS = (
+    "tradingview.com",
+    "finance.yahoo.com",
+    "finance.yahoo",
+    "stocktwits.com",
+    "seekingalpha.com/symbol",
+    "markets.businessinsider.com/stocks",
+    "marketwatch.com/investing/stock",
+    "investing.com/equities",
+    "simplywall.st",
+    "tipranks.com/stocks",
+    "gurufocus.com/stock",
+    "finviz.com",
+    "barchart.com",
+    "cnbc.com/quotes",
+    "bloomberg.com/quote",
+    "wsj.com/market-data",
+    "pse.tools",  # quote widgets if they leak in
+)
+
+_NON_NEWS_SOURCE_NAMES = (
+    "tradingview",
+    "yahoo finance",
+    "stocktwits",
+    "finviz",
+    "barchart",
+    "simply wall",
+    "tipranks",
+    "gurufocus",
+)
+
+# Headlines that are clearly quote/chart landing pages, not reporting
+_NON_NEWS_TITLE_PATTERNS = (
+    re.compile(r"\bstock price and chart\b", re.I),
+    re.compile(r"\bprice and chart\b", re.I),
+    re.compile(r"\bstock quote\b", re.I),
+    re.compile(r"\blive quote\b", re.I),
+    re.compile(r"\btechnical (analysis|chart)\b", re.I),
+    re.compile(r"\bchart\s*[—\-–:]\s*pse\s*:", re.I),
+)
+
+# Team/sports coverage that shares brand names (San Miguel Beermen, etc.)
+_SPORTS_NOISE_PATTERNS = (
+    re.compile(r"\bPBA\b"),
+    re.compile(r"\bUAAP\b"),
+    re.compile(r"\bNCAA\b"),
+    re.compile(r"\bNBA\b"),
+    re.compile(r"\bFIBA\b"),
+    re.compile(r"\bFIFA\b"),
+    re.compile(r"\bMPBL\b"),
+    re.compile(r"\bbasketball\b", re.I),
+    re.compile(r"\bvolleyball\b", re.I),
+    re.compile(r"\bfootball\b", re.I),
+    re.compile(r"\bsoccer\b", re.I),
+    re.compile(r"\bboxing\b", re.I),
+    re.compile(r"\bolympics?\b", re.I),
+    re.compile(r"\bbeermen\b", re.I),
+    re.compile(r"\bgin.?kings\b", re.I),
+    re.compile(r"\bhotshots\b", re.I),
+    re.compile(r"\belasto.?painters\b", re.I),
+    re.compile(r"\btnt\s+ka?tropa\b", re.I),
+    re.compile(r"\bchampionship\b", re.I),
+    re.compile(r"\bplayoffs?\b", re.I),
+    re.compile(r"\binning[s]?\b", re.I),
+)
+
+_SPORTS_URL_FRAGMENTS = (
+    "/sports/",
+    "/sport/",
+    "/pba/",
+    "/basketball/",
+    "/uaap/",
+    "sports.",
+)
+
+# Corporate / markets cues — required to keep a sports-branded name hit
+_BUSINESS_CUE_PATTERNS = (
+    re.compile(r"\bdividend", re.I),
+    re.compile(r"\bearnings?\b", re.I),
+    re.compile(r"\brevenue\b", re.I),
+    re.compile(r"\bprofit", re.I),
+    re.compile(r"\bnet\s+income\b", re.I),
+    re.compile(r"\bIPO\b"),
+    re.compile(r"\bPSE\b"),
+    re.compile(r"\bstock\s+exchange\b", re.I),
+    re.compile(r"\bshares?\b", re.I),
+    re.compile(r"\binvestor", re.I),
+    re.compile(r"\bSEC\b"),
+    re.compile(r"\b17-?[AC]\b", re.I),
+    re.compile(r"\bcorporation\b", re.I),
+    re.compile(r"\bconglomerate\b", re.I),
+    re.compile(r"\bmarket\s+cap", re.I),
+    re.compile(r"\bbuyback\b", re.I),
+    re.compile(r"\bguidance\b", re.I),
+    re.compile(r"\bquarter(?:ly)?\s+results?\b", re.I),
+    re.compile(r"\bpeso", re.I),
 )
 
 
@@ -47,45 +233,252 @@ def _short_company_name(name: str | None) -> str:
     return short or n
 
 
+# Trailing sector / legal qualifiers stripped when forming a brand stem
+# (Filinvest Land → Filinvest; East West Banking → East West).
+_TRAILING_NAME_NOISE = frozenset(
+    {
+        "land",
+        "development",
+        "banking",
+        "bank",
+        "power",
+        "energy",
+        "mining",
+        "realty",
+        "properties",
+        "property",
+        "reit",
+        "resources",
+        "ventures",
+        "finance",
+        "financial",
+        "insurance",
+        "investments",
+        "investment",
+        "international",
+        "philippines",
+        "philippine",
+        "industrial",
+        "industries",
+        "manufacturing",
+        "foods",
+        "food",
+        "petroleum",
+        "water",
+        "telecom",
+        "telecommunications",
+        "communications",
+        "express",
+        "airways",
+        "shipping",
+        "ports",
+        "terminal",
+        "terminals",
+        "hotel",
+        "hotels",
+        "resort",
+        "resorts",
+        "entertainment",
+        "and",
+        "the",
+        "of",
+    }
+)
+
+
+def _alnum_key(s: str) -> str:
+    """Lowercase letters+digits only — EastWest ≡ East West."""
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+
+def _brand_core_words(name: str | None) -> list[str]:
+    """Short-name words with trailing sector qualifiers removed."""
+    short = _short_company_name(name)
+    words = short.split() if short else []
+    core = list(words)
+    while len(core) > 1 and core[-1].lower().rstrip(".") in _TRAILING_NAME_NOISE:
+        core.pop()
+    return core
+
+
+def _brand_stem(name: str | None) -> str:
+    """Compact brand for queries/matching (Filinvest, East West). Empty if weak."""
+    core = _brand_core_words(name)
+    if not core:
+        return ""
+    brand = " ".join(core)
+    if len(_alnum_key(brand)) < 5:
+        return ""
+    short = _short_company_name(name)
+    if short and _alnum_key(brand) == _alnum_key(short):
+        return ""
+    return brand
+
+
+def _brand_phrases(name: str | None) -> list[str]:
+    """
+    Issuer phrases for headline matching (longest / most specific first).
+
+    Handles EastWest vs 'East West Banking', and Filinvest vs 'Filinvest Land'.
+    """
+    short = _short_company_name(name)
+    full = (name or "").strip()
+    phrases: list[str] = []
+    if short:
+        phrases.append(short)
+    if full and full.lower() != (short or "").lower():
+        phrases.append(full)
+
+    core = _brand_core_words(name)
+    if core:
+        brand = " ".join(core)
+        phrases.append(brand)
+        if len(core) >= 2:
+            phrases.append("".join(core))
+        lead = re.sub(r"[^A-Za-z0-9]+", "", core[0])
+        if len(lead) >= 6:
+            phrases.append(lead)
+        # Short first word + second (East West → EastWest)
+        if len(core) >= 2 and len(lead) <= 5:
+            phrases.append(f"{core[0]} {core[1]}")
+            phrases.append(f"{core[0]}{core[1]}")
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for p in phrases:
+        key = _alnum_key(p)
+        if len(key) < 5 or key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
 def _is_ambiguous_ticker(ticker: str | None) -> bool:
-    t = (ticker or "").strip()
-    return bool(t) and len(t) <= AMBIGUOUS_TICKER_LEN
+    t = (ticker or "").strip().upper()
+    if not t:
+        return False
+    if len(t) <= AMBIGUOUS_TICKER_LEN:
+        return True
+    return t in _ENGLISH_WORD_TICKERS
+
+
+def _ticker_pse_qualified(ticker: str, text: str) -> bool:
+    """True when ticker appears as a PSE symbol, not bare English prose."""
+    if not ticker or not text:
+        return False
+    t = re.escape(ticker.strip().upper())
+    return bool(
+        re.search(
+            rf"(?i)(?<![A-Za-z0-9]){t}\s*:?\s*PSE|PSE\s*:?\s*{t}"
+            rf"|(?<![A-Za-z0-9]){t}\.(?:PS|PSE)\b",
+            text,
+        )
+    )
+
+
+def _ticker_in_text(ticker: str, text: str, *, strict: bool = False) -> bool:
+    """
+    Match ticker as a token. English-word / short tickers only count when
+    PSE-qualified or as an ALL-CAPS token (avoids 'rock Philippines').
+    """
+    if not ticker or not text:
+        return False
+    t = ticker.strip().upper()
+    if not t:
+        return False
+    if _ticker_pse_qualified(t, text):
+        return True
+    ambiguous = _is_ambiguous_ticker(t)
+    if ambiguous or strict:
+        # Require uppercase ticker token (headlines rarely shout the verb ROCK)
+        return bool(re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", text))
+    return bool(
+        re.search(rf"(?<![A-Za-z0-9]){re.escape(t)}(?![A-Za-z0-9])", text, flags=re.I)
+    )
+
+
+def _name_in_text(name: str | None, text: str) -> bool:
+    """
+    Company / brand hit in headline or metadata.
+
+    Accepts spaced vs compacted forms (East West ↔ EastWest) and brand stems
+    after dropping sector qualifiers (Filinvest Land → Filinvest). Requires a
+    ≥5-character alphanumeric key so short tokens like SM alone never match.
+    """
+    blob = text or ""
+    blob_l = blob.lower()
+    blob_key = _alnum_key(blob)
+    for phrase in _brand_phrases(name):
+        if phrase.lower() in blob_l:
+            return True
+        key = _alnum_key(phrase)
+        if key and key in blob_key:
+            return True
+    return False
 
 
 def build_queries(ticker: str | None, name: str | None) -> list[str]:
     """
     Primary (+ optional secondary) Google News queries.
 
-    Short tickers (SM, T, X, …) are constrained with company name and PSE/PH cues.
+    Prefer the corporation name; never rely on bare Philippines + English-word ticker.
     """
     t = (ticker or "").strip().upper()
     short = _short_company_name(name)
+    full = (name or "").strip()
     ambiguous = _is_ambiguous_ticker(t)
     queries: list[str] = []
 
+    # Exclude common sports hijacks of conglomerate brand names (PBA teams, etc.)
+    sports_excl = "-PBA -basketball -UAAP -Beermen -volleyball -FIFA -NBA"
+
+    # Issuer-first query (always prefer legal / short name when available)
+    stem = _brand_stem(name)
+    if short and len(short) >= 4:
+        queries.append(
+            f'"{short}" (PSE OR "Philippine Stock Exchange" OR dividend OR earnings OR shares) '
+            f"{sports_excl}"
+        )
+        # Brand stem when shorter than legal short name (Filinvest, East West)
+        if stem:
+            queries.append(
+                f'"{stem}" (PSE OR dividend OR earnings OR shares OR bank OR property) '
+                f"{sports_excl}"
+            )
+        if full and full.lower() != short.lower() and len(full) >= 8:
+            queries.append(
+                f'"{full}" (PSE OR dividend OR earnings OR "stock exchange") {sports_excl}'
+            )
+    elif full and len(full) >= 6:
+        queries.append(
+            f'"{full}" (PSE OR "Philippine Stock Exchange" OR dividend OR earnings) '
+            f"{sports_excl}"
+        )
+    elif stem:
+        queries.append(
+            f'"{stem}" (PSE OR dividend OR earnings OR shares) {sports_excl}'
+        )
+
     if ambiguous:
-        if short:
+        # Only PSE-qualified ticker forms — never bare word + Philippines
+        if t:
             queries.append(
-                f'("{t}" OR "{t}:PSE" OR "{t} PSE") "{short}" '
-                f'(PSE OR Philippines OR "stock exchange" OR shares)'
-            )
-            queries.append(
-                f'"{short}" (PSE OR Philippines) (stock OR shares OR dividend OR IPO)'
-            )
-        else:
-            queries.append(
-                f'("{t}:PSE" OR "{t} PSE") (Philippines OR PSE) (stock OR shares)'
+                f'("{t}:PSE" OR "{t} PSE" OR "{t}.PS") '
+                f'(stock OR shares OR dividend OR earnings OR corporation)'
             )
     else:
-        parts: list[str] = []
         if t:
-            parts.append(f'("{t}" OR "{t}:PSE" OR "{t} PSE")')
-        if short and short.upper() != t:
-            parts.append(f'"{short}"')
-        elif name and (name or "").strip().upper() != t:
-            parts.append(f'"{(name or "").strip()}"')
-        core = " OR ".join(parts) if parts else '"Philippine Stock Exchange"'
-        queries.append(f"({core}) (PSE OR Philippines OR Philippine)")
+            if short and short.upper() != t:
+                queries.append(
+                    f'("{t}:PSE" OR "{t} PSE" OR "{t}") "{short}" '
+                    f'(stock OR shares OR dividend OR earnings)'
+                )
+            else:
+                queries.append(
+                    f'("{t}:PSE" OR "{t} PSE" OR "{t}") '
+                    f'(PSE OR "stock exchange") (stock OR shares OR dividend)'
+                )
 
     # Deduplicate while preserving order
     seen: set[str] = set()
@@ -94,7 +487,7 @@ def build_queries(ticker: str | None, name: str | None) -> list[str]:
         if q not in seen:
             seen.add(q)
             out.append(q)
-    return out or ['"Philippine Stock Exchange" stock']
+    return out or ['"Philippine Stock Exchange" listed company']
 
 
 def _source_from_title(title: str) -> tuple[str, str]:
@@ -251,10 +644,60 @@ def _normalize_title(title: str) -> str:
     return t
 
 
-def _ticker_in_text(ticker: str, text: str) -> bool:
-    if not ticker:
+def _has_business_cue(text: str) -> bool:
+    return any(p.search(text or "") for p in _BUSINESS_CUE_PATTERNS)
+
+
+def _is_sports_noise(item: dict[str, Any]) -> bool:
+    """
+    True for team/sports coverage that hijacks corporate brand names
+    (e.g. PBA 'San Miguel sinks Macau' ≠ San Miguel Corporation finance).
+    Kept only if a clear business/markets cue is also present.
+    """
+    title = item.get("title") or ""
+    source = item.get("source") or ""
+    link = (item.get("link") or "").lower()
+    google = (item.get("google_link") or "").lower()
+    blob = f"{title} {source}"
+    url_blob = f"{link} {google}"
+
+    sports_hit = any(p.search(blob) for p in _SPORTS_NOISE_PATTERNS)
+    sports_hit = sports_hit or any(frag in url_blob for frag in _SPORTS_URL_FRAGMENTS)
+    if not sports_hit:
         return False
-    return bool(re.search(rf"(?<![A-Za-z0-9]){re.escape(ticker)}(?![A-Za-z0-9])", text, flags=re.I))
+    if _has_business_cue(blob) or _has_business_cue(url_blob):
+        return False
+    return True
+
+
+def item_is_news_like(item: dict[str, Any]) -> bool:
+    """
+    False for quote/chart/screener landing pages (TradingView, Yahoo Finance
+    quote URLs, 'Stock Price and Chart — PSE:ANS', etc.) and for sports/team
+    pages that are not corporate finance coverage.
+    """
+    title = item.get("title") or ""
+    source = (item.get("source") or "").strip().lower()
+    link = (item.get("link") or "").strip().lower()
+    google = (item.get("google_link") or "").strip().lower()
+    host_blob = f"{link} {google}"
+
+    for frag in _NON_NEWS_HOST_FRAGMENTS:
+        if frag in host_blob:
+            return False
+
+    for name in _NON_NEWS_SOURCE_NAMES:
+        if name in source:
+            return False
+
+    for pat in _NON_NEWS_TITLE_PATTERNS:
+        if pat.search(title):
+            return False
+
+    if _is_sports_noise(item):
+        return False
+
+    return True
 
 
 def relevance_score(
@@ -263,21 +706,28 @@ def relevance_score(
     ticker: str | None,
     name: str | None,
 ) -> int:
-    """Higher = more likely about this PSE issuer."""
-    blob = f"{item.get('title') or ''} {item.get('source') or ''} {item.get('link') or ''}"
+    """Higher = more likely about this PSE issuer. PH geography alone does not score."""
+    if not item_is_news_like(item):
+        return -100
+    title = item.get("title") or ""
+    blob = f"{title} {item.get('source') or ''} {item.get('link') or ''}"
     score = 0
-    t = (ticker or "").strip()
+    t = (ticker or "").strip().upper()
     short = _short_company_name(name)
-    if t and _ticker_in_text(t, blob):
-        score += 3
-        if re.search(rf"{re.escape(t)}\s*:?\s*PSE|{re.escape(t)}\s+PSE", blob, flags=re.I):
-            score += 2
-    if short and len(short) >= 4 and short.lower() in blob.lower():
+
+    if t and _ticker_pse_qualified(t, blob):
+        score += 5
+    elif t and _ticker_in_text(t, blob, strict=_is_ambiguous_ticker(t)):
+        # Bare ticker token — weak unless non-ambiguous
+        score += 1 if _is_ambiguous_ticker(t) else 3
+
+    if _name_in_text(name, blob):
+        score += 5
+    elif short and len(_alnum_key(short)) >= 5 and _alnum_key(short) in _alnum_key(title):
         score += 4
-    elif name and len((name or "").strip()) >= 6 and (name or "").strip().lower() in blob.lower():
-        score += 3
-    low = blob.lower()
-    if any(m in low for m in _PH_MARKERS):
+
+    # PH markers only reinforce an existing issuer identity hit
+    if score > 0 and any(m in blob.lower() for m in _PH_MARKERS):
         score += 1
     return score
 
@@ -289,22 +739,34 @@ def item_is_relevant(
     name: str | None,
 ) -> bool:
     """
-    Drop obvious off-ticker noise. Ambiguous short tickers require an identity hit
-    (ticker or company name) in the headline/source/link.
+    Keep only items about this corporation.
+
+    Requires issuer identity: company name, or PSE-qualified ticker, or (for
+    non-English-word tickers) an ALL-CAPS / clear ticker token — never
+    Philippines + verb collisions like 'rock Philippine politics'.
     """
-    t = (ticker or "").strip()
-    short = _short_company_name(name)
-    blob = f"{item.get('title') or ''} {item.get('source') or ''} {item.get('link') or ''}"
-    has_ticker = bool(t) and _ticker_in_text(t, blob)
-    has_name = bool(short) and len(short) >= 4 and short.lower() in blob.lower()
-    score = relevance_score(item, ticker=ticker, name=name)
+    if not item_is_news_like(item):
+        return False
+    t = (ticker or "").strip().upper()
+    title = item.get("title") or ""
+    blob = f"{title} {item.get('source') or ''} {item.get('link') or ''}"
+
+    has_name = _name_in_text(name, blob)
+    has_pse_ticker = bool(t) and _ticker_pse_qualified(t, blob)
+    has_ticker_token = bool(t) and _ticker_in_text(
+        t, blob, strict=_is_ambiguous_ticker(t)
+    )
 
     if _is_ambiguous_ticker(t):
-        return (has_ticker or has_name) and score >= 3
-    # Longer tickers: keep identity hits; also keep strong PH+name-less PSE hits with ticker
-    if has_ticker or has_name:
-        return True
-    return score >= 4
+        # English-word / short codes: name or PSE-qualified ticker only
+        if has_name or has_pse_ticker:
+            return relevance_score(item, ticker=ticker, name=name) >= 4
+        return False
+
+    # Distinct tickers (JFC, DNL, …): name, PSE form, or clear ticker token
+    if has_name or has_pse_ticker or has_ticker_token:
+        return relevance_score(item, ticker=ticker, name=name) >= 3
+    return False
 
 
 def _fetch_rss_query(query: str) -> list[dict[str, Any]]:
@@ -407,7 +869,7 @@ def fetch_company_news(
     """
     from django.core.cache import cache
 
-    cache_key = f"company_news:v2:{company_id}"
+    cache_key = f"company_news:v5:{company_id}"
     cached = cache.get(cache_key)
 
     queries = build_queries(ticker, name)
@@ -453,7 +915,9 @@ def fetch_company_news(
         raw = cached
         from_cache = True
 
-    items_all: list[dict[str, Any]] = list(raw.get("items_all") or [])
+    items_all: list[dict[str, Any]] = [
+        it for it in (raw.get("items_all") or []) if item_is_news_like(it)
+    ]
     if show_all:
         items = items_all[:MAX_ITEMS]
         hidden = 0

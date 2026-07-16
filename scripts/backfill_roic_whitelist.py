@@ -1,14 +1,13 @@
 """
-Backfill missing cash (and other null ROIC whitelist fields) for proper ROIC.
+Backfill OI / GA / cash for non-financial companies via PDF-first whitelist merge.
 
-Re-fetches Annual Report HTML + ranked AFS/17-A PDFs (OCR on image-only),
-then fill-nulls into existing fiscal years. Never overwrites non-null DB values.
+Targets companies where latest (or any) year needs PDF OI or has tiny/missing cash.
+Uses cached PDFs under data/filings/{cmpy_id} by default; optional live EDGE fetch.
 
 Usage (from repo root):
-  python scripts/backfill_cash_for_roic.py --dry-run
-  python scripts/backfill_cash_for_roic.py --limit 20
-  python scripts/backfill_cash_for_roic.py --tickers SM,JGS
-  python scripts/backfill_cash_for_roic.py --cached-pdfs-only --limit 50
+  python scripts/backfill_roic_whitelist.py --dry-run
+  python scripts/backfill_roic_whitelist.py --cached-pdfs-only --tickers ALI,FCG,JFC
+  python scripts/backfill_roic_whitelist.py --limit 20
 """
 from __future__ import annotations
 
@@ -29,46 +28,59 @@ from src.pdf_roic_extract import (
     fill_html_whitelist,
     prefer_scope_metrics,
 )
-from src.report_metrics import compute_screening_summary
-from src.scale_guard import repair_thousand_scale_jumps
+from src.report_metrics import (
+    compute_screening_summary,
+    needs_pdf_cash,
+    needs_pdf_oi,
+)
+from src.scale_guard import harmonize_yearly_pl_scale, repair_thousand_scale_jumps
 from src.scraper import PSEScraper
 from src.utils import logger, random_delay
 
-# Extracted metric key → DB column
-_METRIC_TO_DB = {
-    "gross_revenue": "revenue",
-    "net_income": "net_income",
-    "eps": "eps",
-    "book_value_per_share": "book_value",
-    "total_assets": "total_assets",
-    "total_liabilities": "total_liabilities",
-    "stockholders_equity": "stockholders_equity",
-    "total_current_liabilities": "total_current_liabilities",
-    "cash_and_equivalents": "cash_and_equivalents",
-    "operating_income": "operating_income",
-    "income_before_tax": "income_before_tax",
-    "income_tax_expense": "income_tax_expense",
-    "gross_profit": "gross_profit",
-    "ga_expense": "ga_expense",
-    "statement_scope": "statement_scope",
-}
+_UPDATE_COLS = (
+    "operating_income",
+    "ga_expense",
+    "cash_and_equivalents",
+    "gross_profit",
+    "cost_of_sales",
+    "interest_expense",
+    "other_expenses",
+    "income_before_tax",
+    "income_tax_expense",
+    "statement_scope",
+)
 
 
-def _companies_needing_cash(cur, tickers: list[str] | None) -> list[dict]:
-    """Companies with ≥1 year that has assets but null cash (non-financial)."""
+def _load_html_seed(cur, company_id: int) -> dict[int, dict]:
+    html_seed = {}
+    for r in cur.execute(
+        """
+        SELECT fiscal_year, revenue, net_income, eps, book_value,
+               total_assets, total_liabilities, stockholders_equity,
+               total_current_liabilities, cash_and_equivalents,
+               operating_income, income_before_tax, income_tax_expense,
+               gross_profit, ga_expense, cost_of_sales, interest_expense,
+               other_expenses, statement_scope
+        FROM financials WHERE company_id=?
+        """,
+        (company_id,),
+    ).fetchall():
+        row = dict(r)
+        y = int(row.pop("fiscal_year"))
+        if row.get("revenue") is not None:
+            row["gross_revenue"] = row["revenue"]
+        html_seed[y] = row
+    return html_seed
+
+
+def _companies_needing_oi_or_cash(cur, tickers: list[str] | None) -> list[dict]:
     rows = cur.execute(
         """
         SELECT c.id, c.ticker, c.name, c.symbol AS cmpy_id, c.sector, c.subsector,
                c.outstanding_shares, c.pe_ratio, c.pb_ratio, c.roe, c.market_cap,
-               c.last_traded_price,
-               SUM(CASE WHEN f.total_assets IS NOT NULL
-                         AND f.cash_and_equivalents IS NULL THEN 1 ELSE 0 END) AS cash_gaps,
-               MAX(f.fiscal_year) AS latest_year
+               c.last_traded_price
         FROM companies c
-        JOIN financials f ON f.company_id = c.id
-        GROUP BY c.id
-        HAVING cash_gaps > 0
-        ORDER BY cash_gaps DESC, c.ticker
+        ORDER BY c.ticker
         """
     ).fetchall()
     out = []
@@ -78,30 +90,23 @@ def _companies_needing_cash(cur, tickers: list[str] | None) -> list[dict]:
             continue
         if tickers and (d.get("ticker") or "").upper() not in tickers:
             continue
-        out.append(d)
+        fins = [
+            dict(x)
+            for x in cur.execute(
+                """
+                SELECT fiscal_year, revenue, net_income, operating_income,
+                       income_before_tax, gross_profit, ga_expense,
+                       total_assets, cash_and_equivalents
+                FROM financials WHERE company_id=? ORDER BY fiscal_year
+                """,
+                (d["id"],),
+            ).fetchall()
+        ]
+        if not fins:
+            continue
+        if any(needs_pdf_oi(f) or needs_pdf_cash(f) for f in fins):
+            out.append(d)
     return out
-
-
-def _to_db_row(metrics: dict) -> dict:
-    row = {}
-    for src, dst in _METRIC_TO_DB.items():
-        if metrics.get(src) is not None:
-            row[dst] = metrics[src]
-    # PDF path already uses DB-ish keys for whitelist fields
-    for key in (
-        "cash_and_equivalents",
-        "total_current_liabilities",
-        "total_assets",
-        "operating_income",
-        "gross_profit",
-        "ga_expense",
-        "income_before_tax",
-        "income_tax_expense",
-        "statement_scope",
-    ):
-        if key not in row and metrics.get(key) is not None:
-            row[key] = metrics[key]
-    return row
 
 
 def _extract_from_cached_pdfs(cmpy_id: str) -> dict[int, dict]:
@@ -173,8 +178,9 @@ def _extract_live(scraper: PSEScraper, cmpy_id: str, *, max_pdfs: int = 8) -> di
                 )
     if pdf_candidates:
         pdf_merged = prefer_scope_metrics(pdf_candidates)
-        yearly = fill_html_whitelist(yearly, pdf_merged)
-    return yearly
+        # company filled by caller via second merge with seed — here yearly is HTML
+        return yearly, pdf_merged
+    return yearly, {}
 
 
 def _rescreen(conn, company: dict) -> None:
@@ -182,9 +188,11 @@ def _rescreen(conn, company: dict) -> None:
     fins = cur.execute(
         """
         SELECT fiscal_year, revenue, net_income, eps, book_value,
-               total_assets, total_liabilities, current_ratio, quick_ratio,
-               outstanding_shares, cash_and_equivalents, total_current_liabilities,
-               operating_income, gross_profit, ga_expense
+               total_assets, total_liabilities, stockholders_equity,
+               outstanding_shares, current_ratio, quick_ratio,
+               cash_and_equivalents, total_current_liabilities,
+               operating_income, income_before_tax, income_tax_expense,
+               gross_profit, ga_expense, statement_scope
         FROM financials WHERE company_id = ? ORDER BY fiscal_year
         """,
         (company["id"],),
@@ -200,6 +208,8 @@ def _rescreen(conn, company: dict) -> None:
         {
             "name": company["name"],
             "ticker": company["ticker"],
+            "sector": company.get("sector"),
+            "subsector": company.get("subsector"),
             "pe_ratio": company["pe_ratio"],
             "pb_ratio": company["pb_ratio"],
             "roe": company["roe"],
@@ -227,12 +237,12 @@ def _rescreen(conn, company: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--limit", type=int, default=0, help="Max companies (0 = all)")
+    ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--tickers", default="", help="Comma-separated tickers")
     ap.add_argument(
         "--cached-pdfs-only",
         action="store_true",
-        help="Only re-extract local data/filings/{cmpy_id} PDFs (no EDGE fetch)",
+        help="Only re-extract local data/filings/{cmpy_id} PDFs",
     )
     ap.add_argument("--max-pdfs", type=int, default=8)
     args = ap.parse_args()
@@ -242,116 +252,112 @@ def main() -> None:
     db.init_db()
     conn = db.get_connection()
     cur = conn.cursor()
-    targets = _companies_needing_cash(cur, tickers)
+    targets = _companies_needing_oi_or_cash(cur, tickers)
     if args.limit and args.limit > 0:
         targets = targets[: args.limit]
 
     print(
-        f"Cash-gap companies: {len(targets)}"
+        f"OI/cash-gap non-financials: {len(targets)}"
         f"{' (cached PDFs only)' if args.cached_pdfs_only else ''}"
         f"{' [dry-run]' if args.dry_run else ''}"
     )
 
     scraper = None if args.cached_pdfs_only else PSEScraper()
-    filled_cash_companies = 0
-    filled_cash_rows = 0
+    touched = 0
+    field_updates = 0
 
     for co in targets:
         cmpy_id = str(co["cmpy_id"])
         ticker = co["ticker"]
+        company_meta = {
+            "sector": co.get("sector"),
+            "subsector": co.get("subsector"),
+            "ticker": ticker,
+        }
         try:
+            html_seed = _load_html_seed(cur, co["id"])
             if args.cached_pdfs_only:
                 pdf_yearly = _extract_from_cached_pdfs(cmpy_id)
-                # Seed HTML side from DB so fill-nulls keep asset anchors / non-nulls
-                html_seed = {}
-                for r in cur.execute(
-                    """
-                    SELECT fiscal_year, revenue, net_income, eps, book_value,
-                           total_assets, total_liabilities, stockholders_equity,
-                           total_current_liabilities, cash_and_equivalents,
-                           operating_income, income_before_tax, income_tax_expense,
-                           gross_profit, ga_expense, statement_scope
-                    FROM financials WHERE company_id=?
-                    """,
-                    (co["id"],),
-                ).fetchall():
-                    row = dict(r)
-                    y = int(row.pop("fiscal_year"))
-                    # Map DB revenue back to pipeline key for reconcile helpers
-                    if row.get("revenue") is not None:
-                        row["gross_revenue"] = row["revenue"]
-                    html_seed[y] = row
-                yearly = fill_html_whitelist(html_seed, pdf_yearly)
+                yearly = fill_html_whitelist(html_seed, pdf_yearly, company=company_meta)
             else:
-                yearly = _extract_live(scraper, cmpy_id, max_pdfs=args.max_pdfs)
+                html_live, pdf_merged = _extract_live(
+                    scraper, cmpy_id, max_pdfs=args.max_pdfs
+                )
+                # Prefer live HTML when present; else DB seed
+                base = html_live if html_live else html_seed
+                yearly = fill_html_whitelist(base, pdf_merged, company=company_meta)
 
             yearly, scale_notes = repair_thousand_scale_jumps(
                 yearly,
                 shares_fallback=co.get("outstanding_shares"),
             )
-            for note in scale_notes:
-                logger.info("Scale guard %s: %s", ticker, note)
+            yearly, pl_notes = harmonize_yearly_pl_scale(yearly)
+            for note in scale_notes + pl_notes:
+                logger.info("%s: %s", ticker, note)
 
-            company_cash_fills = 0
-            all_fills: list[str] = []
+            company_hits = 0
             for year, metrics in sorted(yearly.items()):
-                db_row = _to_db_row(metrics)
-                if not db_row:
+                existing = cur.execute(
+                    """
+                    SELECT operating_income, ga_expense, cash_and_equivalents,
+                           gross_profit, cost_of_sales, interest_expense,
+                           other_expenses
+                    FROM financials WHERE company_id=? AND fiscal_year=?
+                    """,
+                    (co["id"], year),
+                ).fetchone()
+                if not existing:
                     continue
-                if args.dry_run:
-                    existing = cur.execute(
-                        """
-                        SELECT cash_and_equivalents FROM financials
-                        WHERE company_id=? AND fiscal_year=?
-                        """,
-                        (co["id"], year),
-                    ).fetchone()
-                    if (
-                        existing
-                        and existing["cash_and_equivalents"] is None
-                        and db_row.get("cash_and_equivalents") is not None
-                    ):
-                        print(
-                            f"  {ticker} FY{year}: would fill cash="
-                            f"{db_row['cash_and_equivalents']:.6g}"
-                        )
-                        company_cash_fills += 1
-                    continue
-
-                filled = db.fill_financial_nulls(
-                    conn, co["id"], int(year), db_row, commit=False
+                replaceable = (
+                    "operating_income",
+                    "ga_expense",
+                    "cash_and_equivalents",
+                    "gross_profit",
+                    "cost_of_sales",
+                    "interest_expense",
+                    "other_expenses",
                 )
-                if "cash_and_equivalents" in filled:
-                    company_cash_fills += 1
-                    filled_cash_rows += 1
-                if filled:
-                    all_fills.append(f"FY{year}:{','.join(filled)}")
+                updates = {}
+                for col in _UPDATE_COLS:
+                    new = metrics.get(col)
+                    if new is None:
+                        continue
+                    old = existing[col] if col in existing.keys() else None
+                    if old is None or (col in replaceable and old != new):
+                        if old is None or col in replaceable:
+                            try:
+                                if old is not None and abs(float(old) - float(new)) < 1e-3:
+                                    continue
+                            except (TypeError, ValueError):
+                                pass
+                            updates[col] = new
+                if not updates:
+                    continue
+                company_hits += 1
+                field_updates += len(updates)
+                bits = ", ".join(f"{k}={updates[k]:.6g}" if isinstance(updates[k], float) else f"{k}={updates[k]}" for k in updates)
+                print(f"  {ticker} FY{year}: {bits}")
+                if args.dry_run:
+                    continue
+                sets = ", ".join(f"{c}=?" for c in updates)
+                cur.execute(
+                    f"UPDATE financials SET {sets} WHERE company_id=? AND fiscal_year=?",
+                    (*updates.values(), co["id"], year),
+                )
 
-            if args.dry_run:
-                if company_cash_fills:
-                    filled_cash_companies += 1
-                elif not yearly:
-                    print(f"  {ticker}: no extract")
-                continue
-
-            if all_fills:
-                conn.commit()
-                _rescreen(conn, co)
-                print(f"{ticker}: filled {'; '.join(all_fills)}")
-                if company_cash_fills:
-                    filled_cash_companies += 1
-            else:
-                print(f"{ticker}: no nulls filled (gaps={co['cash_gaps']})")
+            if company_hits:
+                touched += 1
+                if not args.dry_run:
+                    _rescreen(conn, co)
         except Exception as exc:
-            logger.exception("Backfill failed for %s: %s", ticker, exc)
-            print(f"{ticker}: ERROR {exc}")
+            logger.warning("Backfill failed %s: %s", ticker, exc)
 
     if not args.dry_run:
         conn.commit()
     conn.close()
     print(
-        f"Done. Companies with cash filled: {filled_cash_companies}; "
-        f"cash row fills: {filled_cash_rows}"
+        f"{'[dry-run] ' if args.dry_run else ''}"
+        f"companies touched: {touched}; field updates: {field_updates}"
     )
 
 

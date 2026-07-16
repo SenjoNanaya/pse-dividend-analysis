@@ -5,9 +5,9 @@ from src.report_metrics import DEFAULT_THRESHOLDS, normalize_thresholds
 
 
 def thresholds_from_request(request):
-    """Parse pe_max / pb_max / roe_min from query params (defaults when absent)."""
+    """Parse pe_max / pb_max / roe_min / de_max from query params (defaults when absent)."""
     raw = {}
-    for key in ("pe_max", "pb_max", "roe_min"):
+    for key in ("pe_max", "pb_max", "roe_min", "de_max"):
         val = request.query_params.get(key)
         if val is None or val == "":
             continue
@@ -21,12 +21,13 @@ def thresholds_from_request(request):
 def annotate_live_checks(queryset, thresholds=None):
     """
     Annotate live_check_pass / live_check_eval using stored structural counts
-    plus PE/PB/ROE from company columns vs request thresholds.
+    plus PE/PB/D/E/ROE from company columns vs request thresholds.
     """
     t = normalize_thresholds(thresholds)
     pe_max = t["pe_max"]
     pb_max = t["pb_max"]
     roe_min = t["roe_min"]
+    de_max = t["de_max"]
 
     # Usable scraped ratios: non-null and |value| <= 1000
     pe_eval = Case(
@@ -39,6 +40,7 @@ def annotate_live_checks(queryset, thresholds=None):
             pe_ratio__isnull=False,
             pe_ratio__gte=-1000,
             pe_ratio__lte=1000,
+            pe_ratio__gt=0,
             pe_ratio__lt=pe_max,
             then=Value(1),
         ),
@@ -56,6 +58,21 @@ def annotate_live_checks(queryset, thresholds=None):
             pb_ratio__gte=-1000,
             pb_ratio__lte=1000,
             pb_ratio__lt=pb_max,
+            then=Value(1),
+        ),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    de_eval = Case(
+        When(debt_to_equity__isnull=False, debt_to_equity__gte=0, then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    de_pass = Case(
+        When(
+            debt_to_equity__isnull=False,
+            debt_to_equity__gte=0,
+            debt_to_equity__lt=de_max,
             then=Value(1),
         ),
         default=Value(0),
@@ -84,8 +101,8 @@ def annotate_live_checks(queryset, thresholds=None):
     )
 
     return queryset.annotate(
-        live_check_pass=struct_pass + pe_pass + pb_pass + roe_pass,
-        live_check_eval=struct_eval + pe_eval + pb_eval + roe_eval,
+        live_check_pass=struct_pass + pe_pass + pb_pass + de_pass + roe_pass,
+        live_check_eval=struct_eval + pe_eval + pb_eval + de_eval + roe_eval,
     )
 
 

@@ -74,12 +74,19 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           title={
             report.roicMeta?.mode === 'proper'
               ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY %`
-              : report.roicMeta?.mode === 'na'
-                ? 'ROIC — N/A (financials)'
-                : 'ROIC (proxy) — YoY %'
+              : report.roicMeta?.mode === 'equity'
+                ? 'Bank capital return (NI ÷ equity) — YoY %'
+                : report.roicMeta?.mode === 'na'
+                  ? 'ROIC — N/A (financials)'
+                  : 'ROIC (proxy) — YoY %'
           }
           data={report.charts.roic}
           color="#6a7a5a"
+        />
+        <MetricBarChart
+          title="Debt / Equity — YoY"
+          data={report.charts.debtEquity}
+          color="#8a5a6a"
         />
         <div className="report-side-panel">
           <div className="report-panel-title">Growth &amp; Ratios</div>
@@ -110,8 +117,22 @@ export default function CompanyReport({ company, onBack, thresholds }) {
               <tr>
                 <td>Liabilities CAGR</td>
                 <td className="num">{formatPct(report.growth.liabilities)}</td>
-                <td>ROIC</td>
+                <td>
+                  {report.roicMeta?.mode === 'equity'
+                    ? 'Bank ROE capital'
+                    : 'ROIC'}
+                </td>
                 <td className="num">{formatPct(report.ratios.roic)}</td>
+              </tr>
+              <tr>
+                <td>Debt / Equity</td>
+                <td className="num">
+                  {report.ratios.debtEquity != null
+                    ? report.ratios.debtEquity.toFixed(2)
+                    : '—'}
+                </td>
+                <td />
+                <td />
               </tr>
             </tbody>
           </table>
@@ -129,6 +150,12 @@ export default function CompanyReport({ company, onBack, thresholds }) {
                 {report.roicMeta?.usedCurrentLiab
                   ? ' (Assets − Current Liabilities).'
                   : ' (Total Assets — ROA-like).'}
+              </>
+            )}
+            {report.roicMeta?.mode === 'equity' && (
+              <>
+                {' '}Banks / insurance: capital return = NI ÷ average stockholders&apos; equity
+                (industrial ROIC is not applied). Closely related to ROE.
               </>
             )}
             {report.roicMeta?.mode === 'na' && (
@@ -242,9 +269,21 @@ export default function CompanyReport({ company, onBack, thresholds }) {
             height={100}
           />
           <MetricBarChart
-            title="ROIC (proxy) %"
+            title={
+              report.roicMeta?.mode === 'equity'
+                ? 'Bank capital return %'
+                : report.roicMeta?.mode === 'proper'
+                  ? 'ROIC %'
+                  : 'ROIC (proxy) %'
+            }
             data={report.charts.roic.slice(-4)}
             color="#6a7a5a"
+            height={100}
+          />
+          <MetricBarChart
+            title="Debt / Equity"
+            data={(report.charts.debtEquity || []).slice(-4)}
+            color="#8a5a6a"
             height={100}
           />
         </div>
@@ -265,6 +304,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
                 <thead>
                   <tr>
                     <th>Security</th>
+                    <th>Type</th>
                     <th>Rate</th>
                     <th>Ex-Date</th>
                     <th>Record</th>
@@ -272,20 +312,27 @@ export default function CompanyReport({ company, onBack, thresholds }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.dividend.history.slice(0, 12).map((row) => (
-                    <tr
-                      key={`${row.security}-${row.exDate}-${row.amount}`}
-                      className={row.isCommon ? '' : 'report-div-pref'}
-                    >
-                      <td title={row.security}>
-                        {row.isCommon ? 'COMMON' : row.security}
-                      </td>
-                      <td className="num">{formatPhp(row.amount, 4)}</td>
-                      <td>{row.exDate || '—'}</td>
-                      <td>{row.recordDate || '—'}</td>
-                      <td>{row.paymentDate || '—'}</td>
-                    </tr>
-                  ))}
+                  {report.dividend.history.slice(0, 12).map((row) => {
+                    const dtype = String(row.type || 'cash').toLowerCase();
+                    const isCash = dtype === 'cash';
+                    return (
+                      <tr
+                        key={`${row.security}|${dtype}|${row.exDate}|${row.amount}|${row.recordDate || ''}`}
+                        className={row.isCommon ? '' : 'report-div-pref'}
+                      >
+                        <td title={row.security}>
+                          {row.isCommon ? 'COMMON' : row.security}
+                        </td>
+                        <td>{dtype}</td>
+                        <td className="num">
+                          {isCash ? formatPhp(row.amount, 4) : '—'}
+                        </td>
+                        <td>{row.exDate || '—'}</td>
+                        <td>{row.recordDate || '—'}</td>
+                        <td>{row.paymentDate || '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

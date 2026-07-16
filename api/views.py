@@ -20,7 +20,7 @@ class CompanyListView(ListAPIView):
     ordering_fields = [
         'symbol', 'name', 'sector', 'subsector', 'ticker',
         'check_pass_count', 'check_evaluable_total', 'live_check_pass', 'live_check_eval',
-        'info_incomplete', 'market_cap', 'last_traded_price', 'div_yield',
+        'info_incomplete', 'market_cap', 'last_traded_price', 'div_yield', 'roic',
     ]
     ordering = ['-live_check_pass', 'symbol']
 
@@ -82,12 +82,15 @@ class CompanyFacetsView(APIView):
                 'pe_max': 22,
                 'pb_max': 1,
                 'roe_min': 0.10,
+                'de_max': 2,
             },
             'threshold_inputs': {
                 'pe_max': 'absolute',
                 'pb_max': 'absolute',
                 'roe_min': 'fraction (UI enters percent)',
                 'yield_min': 'fraction (UI enters percent)',
+                'roic_min': 'fraction (UI enters percent)',
+                'de_max': 'absolute (liabilities ÷ equity)',
             },
         })
 

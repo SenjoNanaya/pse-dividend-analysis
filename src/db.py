@@ -39,6 +39,8 @@ def init_db():
             check_struct_eval INTEGER,
             info_incomplete INTEGER,
             div_yield REAL,
+            roic REAL,
+            debt_to_equity REAL,
             last_updated DATETIME
         )
     """)
@@ -64,6 +66,9 @@ def init_db():
             income_tax_expense REAL,
             gross_profit REAL,
             ga_expense REAL,
+            cost_of_sales REAL,
+            interest_expense REAL,
+            other_expenses REAL,
             statement_scope TEXT,
             current_ratio REAL,
             quick_ratio REAL,
@@ -128,6 +133,8 @@ def _ensure_company_columns(cursor):
         ("check_evaluable_total", "INTEGER"),
         ("info_incomplete", "INTEGER"),
         ("div_yield", "REAL"),
+        ("roic", "REAL"),
+        ("debt_to_equity", "REAL"),
         ("check_struct_pass", "INTEGER"),
         ("check_struct_eval", "INTEGER"),
     ):
@@ -150,6 +157,9 @@ def _ensure_financial_columns(cursor):
         ("income_tax_expense", "REAL"),
         ("gross_profit", "REAL"),
         ("ga_expense", "REAL"),
+        ("cost_of_sales", "REAL"),
+        ("interest_expense", "REAL"),
+        ("other_expenses", "REAL"),
         ("statement_scope", "TEXT"),
     ):
         if col not in existing:
@@ -237,6 +247,8 @@ def update_company_screening(
     div_yield=None,
     check_struct_pass=None,
     check_struct_eval=None,
+    roic=None,
+    debt_to_equity=None,
 ):
     cursor = conn.cursor()
     cursor.execute("""
@@ -245,6 +257,8 @@ def update_company_screening(
             check_evaluable_total = ?,
             info_incomplete = ?,
             div_yield = ?,
+            roic = ?,
+            debt_to_equity = ?,
             check_struct_pass = ?,
             check_struct_eval = ?
         WHERE id = ?
@@ -253,6 +267,8 @@ def update_company_screening(
         check_evaluable_total,
         1 if info_incomplete else 0,
         div_yield,
+        roic,
+        debt_to_equity,
         check_struct_pass,
         check_struct_eval,
         company_id,
@@ -274,6 +290,9 @@ _FINANCIAL_COLUMNS = (
     "income_tax_expense",
     "gross_profit",
     "ga_expense",
+    "cost_of_sales",
+    "interest_expense",
+    "other_expenses",
     "statement_scope",
     "current_ratio",
     "quick_ratio",
@@ -287,7 +306,8 @@ def insert_financials(conn, company_id, fiscal_year, data):
     data: revenue, net_income, eps, book_value, total_assets, total_liabilities,
           stockholders_equity, total_current_liabilities,
           cash_and_equivalents, operating_income, income_before_tax,
-          income_tax_expense, gross_profit, ga_expense, statement_scope,
+          income_tax_expense, gross_profit, ga_expense, cost_of_sales,
+          interest_expense, other_expenses, statement_scope,
           current_ratio, quick_ratio, outstanding_shares
     """
     cursor = conn.cursor()
@@ -298,9 +318,10 @@ def insert_financials(conn, company_id, fiscal_year, data):
             book_value, total_assets, total_liabilities, stockholders_equity,
             total_current_liabilities,
             cash_and_equivalents, operating_income, income_before_tax,
-            income_tax_expense, gross_profit, ga_expense, statement_scope,
+            income_tax_expense, gross_profit, ga_expense,
+            cost_of_sales, interest_expense, other_expenses, statement_scope,
             current_ratio, quick_ratio, outstanding_shares
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         company_id,
         fiscal_year,
@@ -318,6 +339,9 @@ def insert_financials(conn, company_id, fiscal_year, data):
         data.get('income_tax_expense'),
         data.get('gross_profit'),
         data.get('ga_expense'),
+        data.get('cost_of_sales'),
+        data.get('interest_expense'),
+        data.get('other_expenses'),
         data.get('statement_scope'),
         data.get('current_ratio'),
         data.get('quick_ratio'),

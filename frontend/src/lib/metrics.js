@@ -11,6 +11,7 @@ export const DEFAULT_THRESHOLDS = {
   peMax: 22,
   pbMax: 1,
   roeMin: 0.1,
+  deMax: 2,
 };
 
 /** P&L % growth only when both periods are profitable (mirror report_metrics.PL_*) */
@@ -25,11 +26,36 @@ export function normalizeThresholds(thresholds) {
   const peMax = safeNum(thresholds?.peMax);
   const pbMax = safeNum(thresholds?.pbMax);
   const roeMin = safeNum(thresholds?.roeMin);
+  const deMax = safeNum(thresholds?.deMax);
   return {
     peMax: peMax != null ? peMax : DEFAULT_THRESHOLDS.peMax,
     pbMax: pbMax != null ? pbMax : DEFAULT_THRESHOLDS.pbMax,
     roeMin: roeMin != null ? roeMin : DEFAULT_THRESHOLDS.roeMin,
+    deMax: deMax != null ? deMax : DEFAULT_THRESHOLDS.deMax,
   };
+}
+
+/** Total liabilities ÷ equity (NA for financials / missing / non-positive equity). */
+export function debtToEquityRatio(row, company) {
+  if (!row) return null;
+  if (isFinancialSector(company)) return null;
+  const liab = safeNum(row.total_liabilities);
+  if (liab == null) return null;
+  let eq = safeNum(row.stockholders_equity);
+  if (eq == null || Math.abs(eq) < 1e-9) {
+    const assets = safeNum(row.total_assets);
+    if (assets == null) return null;
+    eq = assets - liab;
+  }
+  if (eq == null || eq <= 0) return null;
+  return liab / eq;
+}
+
+export function debtToEquityPass(de, deMax) {
+  const d = safeNum(de);
+  const cap = safeNum(deMax);
+  if (d == null || cap == null || d < 0) return null;
+  return d < cap;
 }
 
 /** Exact-zero revenue/EPS are placeholders, not prints. */
@@ -70,6 +96,226 @@ export function sanitizeRoeDisplay(roe, netIncome) {
   if (ni != null && ni <= 0) return null;
   if (Math.abs(r) < 0.0005) return null;
   return r;
+}
+
+/** Prefer NI/equity when disclosure FR looks double-scaled (~0.19% vs ~19%). */
+export function preferRoe(scraped, computed) {
+  const s = safeNum(scraped);
+  let c = safeNum(computed);
+  if (c != null && Math.abs(c) > 2) c = null; // absurd NI/E (bad equity scale)
+  if (s == null) return c;
+  if (c == null) return s;
+  if (Math.abs(s) < 0.01 && Math.abs(c) > 0.05) return c;
+  return s;
+}
+
+/** G&A is always a positive expense magnitude. */
+export function normalizeGaExpense(ga) {
+  const v = safeNum(ga);
+  if (v == null) return null;
+  return Math.abs(v);
+}
+
+const OI_ANCHOR_MIN = 1_000_000;
+const OI_IBT_MIN_RATIO = 0.40;
+
+/** Reject GP that cannot be a statement gross profit. */
+export function grossProfitSane(gp, {
+  revenue = null,
+  totalAssets = null,
+  netIncome = null,
+} = {}) {
+  const v = safeNum(gp);
+  if (v == null) return false;
+  const rev = safeNum(revenue);
+  if (rev != null && Math.abs(rev) >= OI_ANCHOR_MIN && Math.abs(v) > Math.abs(rev) * 1.05) {
+    return false;
+  }
+  const assets = safeNum(totalAssets);
+  if (assets != null && Math.abs(assets) >= OI_ANCHOR_MIN && Math.abs(v) > Math.abs(assets)) {
+    return false;
+  }
+  const ni = safeNum(netIncome);
+  if (ni != null && Math.abs(ni) >= OI_ANCHOR_MIN && Math.abs(v) > 50 * Math.abs(ni)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Reject OI that cannot be core ops (oversized, undersized vs GP/NI, or <0.4× IBT).
+ */
+export function operatingIncomeSane(oi, {
+  revenue = null,
+  grossProfit = null,
+  netIncome = null,
+  incomeBeforeTax = null,
+  allowBelowIbt = false,
+} = {}) {
+  const v = safeNum(oi);
+  if (v == null) return false;
+  const rev = safeNum(revenue);
+  const gp = safeNum(grossProfit);
+
+  if (rev != null && Math.abs(v) > Math.abs(rev) * 1.05) {
+    const revBelievable = gp == null || Math.abs(gp) <= Math.abs(rev) * 1.05;
+    if (revBelievable) return false;
+  }
+  if (gp != null && Math.abs(gp) > 0 && Math.abs(v) > 3 * Math.abs(gp)) return false;
+
+  if (gp != null && Math.abs(gp) >= OI_ANCHOR_MIN && Math.abs(v) < 0.03 * Math.abs(gp)) {
+    return false;
+  }
+
+  const ni = safeNum(netIncome);
+  const ibt = safeNum(incomeBeforeTax);
+  if (
+    !allowBelowIbt
+    && ibt != null
+    && Math.abs(ibt) >= OI_ANCHOR_MIN
+    && ((v > 0 && ibt > 0) || (v < 0 && ibt < 0))
+    && Math.abs(v) < OI_IBT_MIN_RATIO * Math.abs(ibt)
+  ) {
+    return false;
+  }
+
+  const earn = ni != null ? ni : ibt;
+  if (earn != null && Math.abs(earn) >= OI_ANCHOR_MIN && Math.abs(v) < 0.05 * Math.abs(earn)) {
+    const gpOk = (
+      gp != null
+      && Math.abs(gp) >= OI_ANCHOR_MIN
+      && Math.abs(gp) >= 0.10 * Math.abs(earn)
+    );
+    if (!gpOk) return false;
+  }
+  if (earn != null && Math.abs(earn) >= OI_ANCHOR_MIN && Math.abs(v) > 5.0 * Math.abs(earn)) {
+    return false;
+  }
+  return true;
+}
+
+export function normalizeExpenseMagnitude(raw) {
+  const v = safeNum(raw);
+  if (v == null) return null;
+  return Math.abs(v);
+}
+
+export function derivedGrossProfit(row) {
+  if (!row) return null;
+  const rev = safeNum(row.revenue) ?? safeNum(row.gross_revenue);
+  const cogs = normalizeExpenseMagnitude(row.cost_of_sales);
+  if (rev == null || cogs == null) return null;
+  const gp = rev - cogs;
+  if (!grossProfitSane(gp, {
+    revenue: rev,
+    totalAssets: row.total_assets,
+    netIncome: row.net_income,
+  })) {
+    return null;
+  }
+  return gp;
+}
+
+/** IBT + interest, else GP − |GA| − other (ALI-class statements). */
+export function constructedOperatingIncome(row) {
+  if (!row) return null;
+  const ibt = safeNum(row.income_before_tax);
+  const interest = normalizeExpenseMagnitude(row.interest_expense);
+  // Ignore note-scale interest crumbs vs material IBT
+  if (
+    ibt != null
+    && interest != null
+    && Math.abs(ibt) >= OI_ANCHOR_MIN
+    && Math.abs(interest) >= Math.max(OI_ANCHOR_MIN, 0.02 * Math.abs(ibt))
+  ) {
+    return ibt + interest;
+  }
+
+  const gp = safeNum(row.gross_profit);
+  const ga = normalizeGaExpense(row.ga_expense);
+  const other = normalizeExpenseMagnitude(row.other_expenses);
+  if (gp == null || ga == null || other == null) return null;
+  const rev = safeNum(row.revenue) ?? safeNum(row.gross_revenue);
+  if (!grossProfitSane(gp, {
+    revenue: rev,
+    totalAssets: row.total_assets,
+    netIncome: row.net_income,
+  })) {
+    return null;
+  }
+  return gp - ga - other;
+}
+
+export function derivedOperatingIncome(row) {
+  if (!row) return null;
+  const gp = safeNum(row.gross_profit);
+  const ga = normalizeGaExpense(row.ga_expense);
+  if (gp == null || ga == null) return null;
+  const rev = safeNum(row.revenue) ?? safeNum(row.gross_revenue);
+  if (!grossProfitSane(gp, {
+    revenue: rev,
+    totalAssets: row.total_assets,
+    netIncome: row.net_income,
+  })) {
+    return null;
+  }
+  return gp - ga;
+}
+
+/** Prefer scraped OI when sane; else IBT+interest / GP−GA−other / GP−|GA|. */
+export function preferOperatingIncome(row) {
+  if (!row) return null;
+  const rev = safeNum(row.revenue) ?? safeNum(row.gross_revenue);
+  let gp = safeNum(row.gross_profit);
+  if (gp == null) gp = derivedGrossProfit(row);
+  const ni = row.net_income;
+  const ibt = row.income_before_tax;
+  const oi = safeNum(row.operating_income);
+  const opts = {
+    revenue: rev,
+    grossProfit: gp,
+    netIncome: ni,
+    incomeBeforeTax: ibt,
+  };
+  if (oi != null && operatingIncomeSane(oi, opts)) return oi;
+  const interest = normalizeExpenseMagnitude(row.interest_expense);
+  const ibtN = safeNum(ibt);
+  if (
+    ibtN != null
+    && interest != null
+    && Math.abs(ibtN) >= OI_ANCHOR_MIN
+    && Math.abs(interest) >= Math.max(OI_ANCHOR_MIN, 0.02 * Math.abs(ibtN))
+  ) {
+    const ibtOi = ibtN + interest;
+    if (operatingIncomeSane(ibtOi, {
+      revenue: rev,
+      grossProfit: null,
+      netIncome: ni,
+      incomeBeforeTax: ibt,
+      allowBelowIbt: true,
+    })) {
+      return ibtOi;
+    }
+  }
+  const synthOpts = { ...opts, allowBelowIbt: true };
+  for (const candidate of [
+    constructedOperatingIncome({ ...row, gross_profit: gp ?? row.gross_profit }),
+    derivedOperatingIncome({ ...row, gross_profit: gp ?? row.gross_profit }),
+  ]) {
+    if (candidate != null && operatingIncomeSane(candidate, synthOpts)) return candidate;
+  }
+  return null;
+}
+
+export function equityForRoe(latest, company) {
+  if (!latest) return null;
+  const stmt = safeNum(latest.stockholders_equity);
+  if (stmt != null && Math.abs(stmt) > 0) return stmt;
+  const bv = safeNum(latest.book_value);
+  const shares =
+    safeNum(latest.outstanding_shares) ?? safeNum(company?.outstanding_shares);
+  if (bv != null && shares != null && Math.abs(shares) > 0) return bv * shares;
+  return null;
 }
 
 export function formatBillions(v, digits = 2) {
@@ -211,13 +457,7 @@ export function investedCapital(row, { proper = false } = {}) {
 }
 
 export function approxOperatingIncome(row) {
-  if (!row) return null;
-  const op = safeNum(row.operating_income);
-  if (op != null) return op;
-  const gp = safeNum(row.gross_profit);
-  const ga = safeNum(row.ga_expense);
-  if (gp != null && ga != null) return gp - ga;
-  return null;
+  return preferOperatingIncome(row);
 }
 
 export function effectiveTaxRate(row) {
@@ -243,15 +483,49 @@ export function isFinancialSector(company) {
 }
 
 /**
- * ROIC series (percentage points for charts).
- * mode: 'proper' | 'proxy' | 'na'
+ * ROIC / bank capital-return series (percentage points for charts).
+ * mode: 'proper' | 'proxy' | 'equity'
+ * Banks/insurance use equity mode (NI ÷ avg equity) — not industrial A−cash−CL.
  */
 export function computeRoicSeries(financials = [], company = null) {
-  if (isFinancialSector(company)) {
-    return { series: [], mode: 'na', statementScope: null, taxAssumed: false };
+  const rows = completeFinancials(financials);
+  let statementScope = null;
+  for (const row of rows) {
+    if (row.statement_scope && !statementScope) {
+      statementScope = row.statement_scope;
+    }
   }
 
-  const rows = completeFinancials(financials);
+  if (isFinancialSector(company)) {
+    const out = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      const ni = safeNum(row.net_income);
+      const eqEnd = equityForRoe(row, company);
+      if (ni == null || eqEnd == null || eqEnd === 0) continue;
+
+      let eq = eqEnd;
+      if (i > 0) {
+        const eqBeg = equityForRoe(rows[i - 1], company);
+        if (eqBeg != null && eqBeg !== 0) eq = (eqBeg + eqEnd) / 2;
+      }
+      if (eq === 0) continue;
+
+      out.push({
+        year: String(row.fiscal_year),
+        value: (ni / eq) * 100,
+        usedCurrentLiab: false,
+        mode: 'equity',
+      });
+    }
+    return {
+      series: out,
+      mode: 'equity',
+      statementScope,
+      taxAssumed: false,
+    };
+  }
+
   const canProper = rows.some(
     (r) =>
       approxOperatingIncome(r) != null
@@ -263,13 +537,9 @@ export function computeRoicSeries(financials = [], company = null) {
   const mode = canProper ? 'proper' : 'proxy';
   const out = [];
   let taxAssumed = false;
-  let statementScope = null;
 
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
-    if (row.statement_scope && !statementScope) {
-      statementScope = row.statement_scope;
-    }
 
     const icEnd = investedCapital(row, { proper: mode === 'proper' });
     if (icEnd == null || icEnd === 0) continue;
@@ -307,12 +577,26 @@ export function computeRoicSeries(financials = [], company = null) {
   return { series: out, mode, statementScope, taxAssumed };
 }
 
-export function dividendsByYear(dividends = []) {
+const MAX_PLAUSIBLE_CASH_DPS = 1000;
+const MAX_CASH_DPS_OVER_PRICE = 2;
+
+/** Reject entitlement misparses / digit-strip junk for yield & charts. */
+export function plausibleCashDps(amount, price = null) {
+  const amt = safeNum(amount);
+  if (amt == null || amt <= 0) return false;
+  if (amt > MAX_PLAUSIBLE_CASH_DPS) return false;
+  const p = safeNum(price);
+  if (p != null && p > 0 && amt > p * MAX_CASH_DPS_OVER_PRICE) return false;
+  return true;
+}
+
+export function dividendsByYear(dividends = [], price = null) {
   const map = new Map();
   for (const d of dedupeDividends(dividends)) {
     if (!isCommonDividend(d) || !isCashDividend(d)) continue;
     const amount = safeNum(d.amount);
     if (amount == null || !d.ex_date) continue;
+    if (!plausibleCashDps(amount, price)) continue;
     const year = String(d.ex_date).slice(0, 4);
     if (!/^\d{4}$/.test(year)) continue;
     map.set(year, (map.get(year) || 0) + amount);
@@ -323,13 +607,19 @@ export function dividendsByYear(dividends = []) {
 }
 
 /** Strict TTM common cash DPS ending at asOf (default: today). No older-year fallback. */
-export function trailingAnnualDividend(dividends = [], asOf = null, windowDays = 365) {
+export function trailingAnnualDividend(
+  dividends = [],
+  asOf = null,
+  windowDays = 365,
+  price = null,
+) {
   const rows = [];
   for (const d of dedupeDividends(dividends)) {
     if (!isCommonDividend(d) || !isCashDividend(d)) continue;
     const amount = safeNum(d.amount);
     const ex = parseExDate(d.ex_date);
     if (amount == null || !ex) continue;
+    if (!plausibleCashDps(amount, price)) continue;
     rows.push({ ex, amount });
   }
   if (!rows.length) return null;
@@ -351,9 +641,11 @@ export function trailingAnnualDividend(dividends = [], asOf = null, windowDays =
 export function computeDivYield(price, dividends = [], asOf = null) {
   const p = safeNum(price);
   if (p == null || p <= 0) return null;
-  const annual = trailingAnnualDividend(dividends, asOf);
+  const annual = trailingAnnualDividend(dividends, asOf, 365, p);
   if (annual == null || annual <= 0) return null;
-  return annual / p;
+  const y = annual / p;
+  if (y > 1) return null;
+  return y;
 }
 
 function parseExDate(value) {
@@ -378,13 +670,26 @@ function isCommonDividend(d) {
   return sec === 'COMMON' || sec.startsWith('COMMON ');
 }
 
+function dividendRank(d) {
+  const flagged =
+    d.is_common === 1
+    || d.is_common === true
+    || String(d.security || '').toUpperCase().startsWith('COMMON');
+  const hasRecord = Boolean(d.record_date);
+  const hasSecurity = Boolean(d.security);
+  // Higher is better — prefer COMMON + record_date over legacy null-security dupes
+  return (flagged ? 4 : 0) + (hasRecord ? 2 : 0) + (hasSecurity ? 1 : 0);
+}
+
 function dedupeDividends(dividends = []) {
   const stockKeys = new Set();
+  const propertyDates = new Set();
   for (const d of dividends) {
     const amount = safeNum(d.amount);
     if (amount == null || !d.ex_date) continue;
     const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
     if (dtype === 'stock') stockKeys.add(`${d.ex_date}|${amount}`);
+    if (dtype === 'property') propertyDates.add(d.ex_date);
   }
 
   const best = new Map();
@@ -394,38 +699,42 @@ function dedupeDividends(dividends = []) {
     const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
     // Drop cash rows that duplicate a stock dividend at the same date/amount
     if (dtype === 'cash' && stockKeys.has(`${d.ex_date}|${amount}`)) continue;
+    // Cash beside property on same ex-date with large rate → entitlement misparse
+    if (dtype === 'cash' && propertyDates.has(d.ex_date) && amount >= 5) continue;
     const key = `${d.ex_date}|${amount}|${dtype}`;
-    const flagged =
-      d.is_common === 1
-      || d.is_common === true
-      || String(d.security || '').toUpperCase().startsWith('COMMON');
     const prev = best.get(key);
-    if (!prev) {
+    if (!prev || dividendRank(d) > dividendRank(prev)) {
       best.set(key, d);
-      continue;
     }
-    const prevFlagged =
-      prev.is_common === 1
-      || prev.is_common === true
-      || String(prev.security || '').toUpperCase().startsWith('COMMON');
-    if (flagged && !prevFlagged) best.set(key, d);
   }
   return [...best.values()];
 }
 
 export function dividendHistoryRows(dividends = []) {
-  return [...dividends]
+  return dedupeDividends(dividends)
     .filter((d) => d.ex_date && safeNum(d.amount) != null)
+    // Drop entitlement misparses that still carry a fake PHP "rate"
+    .filter((d) => {
+      const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
+      const amount = safeNum(d.amount);
+      if (dtype === 'cash' || dtype === '') return plausibleCashDps(amount);
+      // Non-cash: hide large numeric rates (share counts / digit-concat junk)
+      if (amount != null && amount >= 5) return false;
+      return true;
+    })
     .sort((a, b) => String(b.ex_date).localeCompare(String(a.ex_date)))
-    .map((d) => ({
-      security: d.security || (isCommonDividend(d) ? 'COMMON' : '—'),
-      isCommon: isCommonDividend(d),
-      type: d.type || 'cash',
-      amount: safeNum(d.amount),
-      exDate: d.ex_date,
-      recordDate: d.record_date || null,
-      paymentDate: d.payment_date || null,
-    }));
+    .map((d) => {
+      const dtype = String(d.type || 'cash').trim().toLowerCase() || 'cash';
+      return {
+        security: d.security || (isCommonDividend(d) ? 'COMMON' : '—'),
+        isCommon: isCommonDividend(d),
+        type: dtype,
+        amount: safeNum(d.amount),
+        exDate: d.ex_date,
+        recordDate: d.record_date || null,
+        paymentDate: d.payment_date || null,
+      };
+    });
 }
 
 export function sanitizePrice(price, marketCap, shares) {
@@ -447,17 +756,22 @@ export function sanitizePrice(price, marketCap, shares) {
 }
 
 export function buildReport(company, thresholds) {
-  const { peMax, pbMax, roeMin } = normalizeThresholds(thresholds);
+  const { peMax, pbMax, roeMin, deMax } = normalizeThresholds(thresholds);
   const financials = completeFinancials(company.financials || []);
   const dividends = company.dividends || [];
 
+  const price = sanitizePrice(
+    company.last_traded_price,
+    company.market_cap,
+    company.outstanding_shares,
+  );
   const bv = seriesByKey(financials, 'book_value');
   const ni = seriesByKey(financials, 'net_income');
   const assets = seriesByKey(financials, 'total_assets');
   const liabilities = seriesByKey(financials, 'total_liabilities');
   const revenue = seriesByKey(financials, 'revenue');
   const epsSeries = seriesByKey(financials, 'eps');
-  const divSeries = dividendsByYear(dividends);
+  const divSeries = dividendsByYear(dividends, price);
   const roicResult = computeRoicSeries(financials, company);
   const roicSeries = roicResult.series || [];
 
@@ -485,18 +799,11 @@ export function buildReport(company, thresholds) {
 
   const latest = financials.length ? financials[financials.length - 1] : null;
   const prev = financials.length >= 2 ? financials[financials.length - 2] : null;
-
-  const price = sanitizePrice(
-    company.last_traded_price,
-    company.market_cap,
-    company.outstanding_shares,
-  );
   const shares = safeNum(company.outstanding_shares);
   const eps = metricValue(latest?.eps, 'eps');
   const bookValue = safeNum(latest?.book_value);
   const netIncome = safeNum(latest?.net_income);
-  const equity =
-    bookValue != null && shares != null ? bookValue * shares : null;
+  const equity = equityForRoe(latest, company);
 
   // Prefer PSE stock-page / disclosure-persisted ratios, else derive from filings
   const peScraped = safeNum(company.pe_ratio);
@@ -509,9 +816,12 @@ export function buildReport(company, thresholds) {
   const pbComputed = price != null && bookValue ? price / bookValue : null;
   const peRaw = (peScraped != null && Math.abs(peScraped) <= 1000 ? peScraped : null) ?? peComputed;
   const pb = (pbScraped != null && Math.abs(pbScraped) <= 1000 ? pbScraped : null) ?? pbComputed;
-  // ROE: disclosure FR → NI/equity when shares available
-  const roeComputed = equity && netIncome != null ? netIncome / equity : null;
-  const roeRaw = roeScraped ?? roeComputed;
+  // ROE: prefer NI/equity when FR looks double-scaled (SPC-style 0.19% vs 19%)
+  const roeComputed =
+    equity != null && netIncome != null && Math.abs(equity) > 0
+      ? netIncome / equity
+      : null;
+  const roeRaw = preferRoe(roeScraped, roeComputed);
   const pe = sanitizePeDisplay(peRaw);
   const roe = sanitizeRoeDisplay(roeRaw, netIncome);
 
@@ -527,8 +837,8 @@ export function buildReport(company, thresholds) {
       : false;
 
   const latestYear = latest?.fiscal_year != null ? String(latest.fiscal_year) : null;
-  const annualDps = trailingAnnualDividend(dividends);
-  const computedDivYield = price && annualDps ? annualDps / price : null;
+  const annualDps = trailingAnnualDividend(dividends, null, 365, price);
+  const computedDivYield = computeDivYield(price, dividends);
   const divYield = safeNum(company.div_yield) ?? computedDivYield;
   const totalDivPaid =
     shares != null && annualDps ? annualDps * shares : null;
@@ -626,10 +936,26 @@ export function buildReport(company, thresholds) {
       pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
     },
     {
+      label: `Debt/Equity < ${Number(deMax)}`,
+      pass: debtToEquityPass(debtToEquityRatio(latest, company), deMax),
+    },
+    {
       label: `ROE > ${Math.round(roeMin * 100)}%`,
       pass: roeRaw != null ? roeRaw > roeMin : null,
     },
   ];
+
+  const debtEquitySeries = financials
+    .map((f) => {
+      const value = debtToEquityRatio(f, company);
+      if (value == null) return null;
+      return { year: String(f.fiscal_year), value };
+    })
+    .filter(Boolean);
+  const debtEquityLatest =
+    debtEquitySeries.length > 0
+      ? debtEquitySeries[debtEquitySeries.length - 1].value
+      : null;
 
   const incomeCagr = growth.income;
   const zeroGrowthFv = earningsUsableForValuation(eps, netIncome)
@@ -676,10 +1002,11 @@ export function buildReport(company, thresholds) {
       eps: epsSeries,
       dividends: divSeries,
       roic: roicSeries,
+      debtEquity: debtEquitySeries,
     },
     growth,
     bvDerivation,
-    ratios: { pe, pb, roe, roic },
+    ratios: { pe, pb, roe, roic, debtEquity: debtEquityLatest },
     roicMeta: {
       usedCurrentLiab: roicUsedCurrentLiab,
       mode: roicResult.mode,

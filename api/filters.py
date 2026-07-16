@@ -23,6 +23,8 @@ class CompanyFilter(django_filters.FilterSet):
     pb_max = django_filters.NumberFilter(method='filter_pb_max')
     roe_min = django_filters.NumberFilter(method='filter_roe_min')
     yield_min = django_filters.NumberFilter(method='filter_yield_min')
+    roic_min = django_filters.NumberFilter(method='filter_roic_min')
+    de_max = django_filters.NumberFilter(method='filter_de_max')
 
     class Meta:
         model = Company
@@ -70,6 +72,20 @@ class CompanyFilter(django_filters.FilterSet):
         if value is None:
             return queryset
         return queryset.filter(div_yield__isnull=False, div_yield__gte=value)
+
+    def filter_roic_min(self, queryset, name, value):
+        if value is None:
+            return queryset
+        return queryset.filter(roic__isnull=False, roic__gte=value)
+
+    def filter_de_max(self, queryset, name, value):
+        if value is None:
+            return queryset
+        return queryset.filter(
+            debt_to_equity__isnull=False,
+            debt_to_equity__gte=0,
+            debt_to_equity__lt=value,
+        )
 
     def filter_qualified(self, queryset, name, value):
         """Live score > 5 and not incomplete (requires live_check_pass annotation from the view)."""

@@ -50,6 +50,9 @@ _NONNEG_PDF_FIELDS = (
     "cash_and_equivalents",
     "total_assets",
     "total_current_liabilities",
+    "cost_of_sales",
+    "interest_expense",
+    "other_expenses",
 )
 _PDF_META_KEYS = frozenset({"operating_income_derived", "statement_scope", "scale"})
 
@@ -72,6 +75,9 @@ def _sane_absolute(value: float | None, field: str) -> bool:
         "ga_expense",
         "income_before_tax",
         "income_tax_expense",
+        "cost_of_sales",
+        "interest_expense",
+        "other_expenses",
     ):
         if abs(v) < 1_000:
             return False
@@ -113,6 +119,30 @@ def _pdf_value_ok(
             a = 0.0
         if a > 0 and v > a * 1.05:
             return False, "exceeds_html_assets"
+    rev = html_row.get("revenue")
+    if rev is None:
+        rev = html_row.get("gross_revenue")
+    if key == "operating_income":
+        from src.report_metrics import operating_income_sane
+
+        if not operating_income_sane(
+            v,
+            revenue=rev,
+            gross_profit=html_row.get("gross_profit"),
+            net_income=html_row.get("net_income"),
+            income_before_tax=html_row.get("income_before_tax"),
+        ):
+            return False, "oi_insane"
+    if key == "gross_profit":
+        from src.report_metrics import gross_profit_sane
+
+        if not gross_profit_sane(
+            v,
+            revenue=rev,
+            total_assets=html_row.get("total_assets"),
+            net_income=html_row.get("net_income"),
+        ):
+            return False, "gp_insane"
     return True, ""
 
 # Closed ROIC field synonyms (label substring match, lowercase)
@@ -151,15 +181,26 @@ LABEL_MAP: dict[str, tuple[str, ...]] = {
         "operating income",
         "operating profit",
         "income from operations",
+        "earnings before interest and tax",
+        "earnings before interest and taxes",
+        "ebit",
     ),
     "gross_profit": (
         "gross profit",
+        "gross income",
     ),
     "ga_expense": (
+        "selling general and administrative expenses",
+        "selling, general and administrative expenses",
+        "selling general and administrative",
+        "sg&a expenses",
+        "sg&a",
         "general and administrative expenses",
         "general and administrative expense",
         "general & administrative expenses",
         "general and administrative",
+        "administrative expenses",
+        "administrative expense",
     ),
     "income_before_tax": (
         "income before income tax",
@@ -172,6 +213,24 @@ LABEL_MAP: dict[str, tuple[str, ...]] = {
         "income tax expense",
         "provision for tax",
     ),
+    "cost_of_sales": (
+        "cost of real estate sales",
+        "cost of real estate",
+        "cost of goods sold",
+        "cost of sales",
+        "cost of services",
+    ),
+    "interest_expense": (
+        "interest and other financing charges",
+        "interest and financing charges",
+        "finance costs",
+        "financing charges",
+        "interest expense",
+    ),
+    "other_expenses": (
+        "other operating expenses",
+        "other expenses",
+    ),
 }
 
 # Never map these to operating_income
@@ -180,7 +239,26 @@ _OPERATING_BLACKLIST = (
     "working capital changes",
     "cash flows from operating",
     "operating activities",
+    "discontinued operation",
+    "discontinued operations",
 )
+
+_PL_LABEL_NOISE = (
+    "share of",
+    "associate",
+    "joint venture",
+    "segment",
+    "margin",
+    "per share",
+    "%",
+)
+
+_SCORED_PDF_FIELDS = frozenset({
+    "operating_income",
+    "gross_profit",
+    "ga_expense",
+    "cash_and_equivalents",
+})
 
 
 def is_blacklisted_operating_label(label: str) -> bool:
@@ -200,6 +278,27 @@ def match_whitelist_field(label: str) -> str | None:
                     continue
                 if field == "total_current_liabilities" and "equity" in low:
                     continue
+                if field in (
+                    "operating_income",
+                    "gross_profit",
+                    "ga_expense",
+                    "cost_of_sales",
+                    "interest_expense",
+                    "other_expenses",
+                ):
+                    if any(x in low for x in _PL_LABEL_NOISE):
+                        continue
+                if field == "interest_expense":
+                    if "interest income" in low or "investment income" in low:
+                        continue
+                    if "from financing" in low:
+                        continue
+                if field == "other_expenses":
+                    # Prefer short IS labels; skip note prose
+                    if len(low.strip()) > 48:
+                        continue
+                    if "income" in low and "operating" not in low:
+                        continue
                 if field == "cash_and_equivalents":
                     # Allow CF ending-cash; reject beginning / activity / dividend lines
                     if any(
@@ -233,6 +332,12 @@ def match_whitelist_field(label: str) -> str | None:
                     if "dividend" in low or "generated" in low or "used in" in low:
                         continue
                 if field == "operating_income" and is_blacklisted_operating_label(low):
+                    continue
+                if field == "ga_expense" and (
+                    "cost of sales" in low
+                    or "cost of goods" in low
+                    or "operating activities" in low
+                ):
                     continue
                 return field
     return None
@@ -271,13 +376,19 @@ def rows_to_yearly_metrics(
     statement_scope: str = "unknown",
 ) -> dict[int, dict[str, Any]]:
     """Map adapter rows → {year: {field: value, ...}}."""
+    from src.parser import _pick_scored_candidate
+    from src.report_metrics import sanitize_operating_metrics
+    from src.scale_guard import harmonize_intra_year_pl_scale
+
     yearly: dict[int, dict[str, Any]] = {}
+    candidates: dict[int, dict[str, list[tuple[str, float]]]] = {}
     meta_scale = scale
     for row in rows:
         if row.get("label") == "__meta_scale__":
             meta_scale = float(row.get("scale") or scale)
             continue
-        field = match_whitelist_field(row.get("label") or "")
+        label = row.get("label") or ""
+        field = match_whitelist_field(label)
         if not field:
             continue
         for year, raw in (row.get("values") or {}).items():
@@ -285,25 +396,38 @@ def rows_to_yearly_metrics(
                 continue
             y = int(year)
             yearly.setdefault(y, {})
-            # Prefer first match; don't overwrite with weaker later rows
-            if field not in yearly[y] and _sane_absolute(float(raw) * meta_scale, field):
-                yearly[y][field] = float(raw) * meta_scale
+            try:
+                scaled = float(raw) * meta_scale
+            except (TypeError, ValueError):
+                continue
+            if not _sane_absolute(scaled, field):
+                continue
+            if field in _SCORED_PDF_FIELDS:
+                candidates.setdefault(y, {}).setdefault(field, []).append(
+                    (str(label), scaled)
+                )
+            elif field not in yearly[y]:
+                yearly[y][field] = scaled
+
+    for y, fields in candidates.items():
+        anchors = dict(yearly.get(y) or {})
+        # Score GP before OI/GA so anchors include GP when chosen
+        for field in ("gross_profit", "ga_expense", "operating_income", "cash_and_equivalents"):
+            cands = fields.get(field) or []
+            if not cands:
+                continue
+            if field == "ga_expense" and yearly[y].get("gross_profit") is not None:
+                anchors["gross_profit"] = yearly[y]["gross_profit"]
+            picked = _pick_scored_candidate(field, cands, anchors)
+            if picked is not None:
+                yearly[y][field] = picked
+                anchors[field] = picked
 
     for y, m in yearly.items():
         m["statement_scope"] = statement_scope
         m["scale"] = meta_scale
-        # Derived operating income
-        op = m.get("operating_income")
-        if op is None:
-            gp = m.get("gross_profit")
-            ga = m.get("ga_expense")
-            if gp is not None and ga is not None:
-                m["operating_income"] = gp - ga
-                m["operating_income_derived"] = True
-            else:
-                m["operating_income_derived"] = False
-        else:
-            m["operating_income_derived"] = False
+        harmonize_intra_year_pl_scale(m)
+        sanitize_operating_metrics(m)
     return yearly
 
 
@@ -486,6 +610,7 @@ def extract_roic_metrics_from_pdf_path(
 
     routed = find_statement_pages(pages, prefer_consolidated=True)
     target_pages = list(routed.get("all") or [])
+    income_pages = list(routed.get("income") or [])
     # Soft fallback removed: cash+assets string match was picking MD&A / PFRS prose.
     # Router already runs a substance-scored fallback when titles fail.
 
@@ -530,6 +655,45 @@ def extract_roic_metrics_from_pdf_path(
         # Prefer whichever has more whitelist keys
         if _score_metrics(mapped2) > _score_metrics(mapped):
             mapped = mapped2
+
+    # Income-only fallback: when combined position+income blob missed OI/GA
+    if income_pages and not any(
+        m.get("operating_income") is not None or m.get("ga_expense") is not None
+        for m in mapped.values()
+    ):
+        inc_text = "\n".join(t for pno, t in pages if pno in income_pages)
+        if inc_text.strip():
+            inc_years = plausible_fiscal_years(detect_years_in_text(inc_text))[:4] or years
+            inc_scale = detect_scale_factor(inc_text) or scale
+            inc_adapter = choose_adapter(inc_text)
+            inc_rows = _run_adapter(inc_adapter, inc_text, inc_years)
+            inc_mapped = rows_to_yearly_metrics(
+                inc_rows, scale=inc_scale, statement_scope=scope_hint
+            )
+            oi_ga_overlay: dict[int, dict[str, Any]] = {}
+            for y, row in inc_mapped.items():
+                if y not in mapped:
+                    continue  # never invent fiscal years
+                patch = {}
+                for fld in (
+                    "operating_income",
+                    "ga_expense",
+                    "gross_profit",
+                    "cost_of_sales",
+                    "interest_expense",
+                    "other_expenses",
+                ):
+                    if row.get(fld) is not None:
+                        patch[fld] = row[fld]
+                if patch:
+                    oi_ga_overlay[y] = patch
+            if oi_ga_overlay:
+                mapped = merge_yearly_metrics(mapped, oi_ga_overlay, overlay_wins=True)
+                logger.info(
+                    "PDF income-only OI/GA fallback %s years=%s",
+                    os.path.basename(pdf_path),
+                    sorted(oi_ga_overlay),
+                )
 
     # CF ending-cash fallback when position/income pages had no cash line
     if not any(m.get("cash_and_equivalents") is not None for m in mapped.values()):
@@ -615,19 +779,121 @@ def extract_roic_metrics_from_pdf_bytes(
             pass
 
 
+def _html_field_replaceable(key: str, html_row: dict[str, Any]) -> bool:
+    """True when HTML is null or fails sane/scale checks (PDF may overwrite)."""
+    existing = html_row.get(key)
+    if existing is None:
+        return True
+    rev = html_row.get("revenue")
+    if rev is None:
+        rev = html_row.get("gross_revenue")
+    if key == "operating_income":
+        from src.report_metrics import needs_pdf_oi, operating_income_sane
+
+        if needs_pdf_oi(html_row):
+            return True
+        return not operating_income_sane(
+            existing,
+            revenue=rev,
+            gross_profit=html_row.get("gross_profit"),
+            net_income=html_row.get("net_income"),
+            income_before_tax=html_row.get("income_before_tax"),
+        )
+    if key == "gross_profit":
+        from src.report_metrics import gross_profit_sane
+
+        return not gross_profit_sane(
+            existing,
+            revenue=rev,
+            total_assets=html_row.get("total_assets"),
+            net_income=html_row.get("net_income"),
+        )
+    if key == "cash_and_equivalents":
+        from src.report_metrics import needs_pdf_cash
+
+        return needs_pdf_cash(html_row)
+    if key == "ga_expense":
+        from src.report_metrics import needs_pdf_ga
+
+        return needs_pdf_ga(html_row)
+    return False
+
+
+def _pdf_prefer_field(
+    key: str,
+    html_row: dict[str, Any],
+    pdf_value: Any,
+    *,
+    pdf_first: bool,
+) -> bool:
+    """
+    Whether PDF may replace non-null HTML for this field under PDF-first policy.
+
+    Non-financial + untrusted HTML: prefer PDF OI/GA/cash when PDF is sane and
+    (for OI) closer to IBT than HTML, or HTML needs PDF.
+    """
+    if not pdf_first:
+        return _html_field_replaceable(key, html_row)
+    if key == "gross_profit":
+        return _html_field_replaceable(key, html_row)
+    if key == "operating_income":
+        from src.report_metrics import needs_pdf_oi, pdf_oi_closer_to_ibt
+
+        if needs_pdf_oi(html_row):
+            return True
+        existing = html_row.get(key)
+        if existing is None:
+            return True
+        return pdf_oi_closer_to_ibt(
+            pdf_value, existing, html_row.get("income_before_tax")
+        )
+    if key == "ga_expense":
+        from src.report_metrics import needs_pdf_ga, needs_pdf_oi
+
+        return needs_pdf_ga(html_row) or needs_pdf_oi(html_row)
+    if key == "cash_and_equivalents":
+        from src.report_metrics import needs_pdf_cash
+
+        return needs_pdf_cash(html_row)
+    return _html_field_replaceable(key, html_row)
+
+
 def fill_html_whitelist(
     html_yearly: dict[int, dict[str, Any]],
     pdf_yearly: dict[int, dict[str, Any]],
+    company: dict[str, Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     """
-    Merge policy: PDF fills nulls on existing HTML fiscal years only.
+    Merge policy: PDF fills nulls — and overwrites insane / untrusted HTML
+    OI/GP/GA/cash — on existing HTML fiscal years only.
 
-    - Never invent new fiscal-year keys from PDF (junk years broke checks).
-    - Never overwrite non-null HTML money fields (DD-style asset/cash corruption).
-    - Reject negative / undersized / assets-anchored nonsense before fill.
-    - Reconcile A=L+E on each year after merge.
+    For non-financial companies, prefer PDF OI/GA/cash when HTML needs PDF
+    (``needs_pdf_oi`` / cash/GA trust signals) or PDF OI is closer to IBT.
+
+    - Never invent new fiscal-year keys from PDF.
+    - Never overwrite with PDF that fails ``_pdf_value_ok``.
+    - Financial sector: never PDF-prefer OI (equity ROIC path).
     """
+    from src.filing_triage import is_financial_sector
     from src.parser import _reconcile_balance_sheet
+    from src.report_metrics import normalize_ga_expense, sanitize_operating_metrics
+    from src.scale_guard import harmonize_intra_year_pl_scale
+
+    company = company or {}
+    financial = is_financial_sector(company.get("sector"), company.get("subsector"))
+    pdf_first = not financial
+
+    replaceable = frozenset({
+        "operating_income",
+        "gross_profit",
+        "ga_expense",
+        "cash_and_equivalents",
+    })
+    # Banks: never prefer-PDF overwrite OI/GA (cash null-fill still ok via replaceable)
+    if financial:
+        prefer_keys = frozenset({"cash_and_equivalents", "gross_profit"})
+    else:
+        prefer_keys = replaceable
 
     merged = {y: dict(m) for y, m in (html_yearly or {}).items()}
     html_years = set(merged.keys())
@@ -659,16 +925,37 @@ def fill_html_whitelist(
 
             existing = html_row.get(k)
             if existing is not None:
+                may_replace = (
+                    k in prefer_keys
+                    and _pdf_prefer_field(k, html_row, v, pdf_first=pdf_first)
+                )
+                if not may_replace:
+                    # Fall back to insane-only replaceable for GP etc.
+                    if k not in replaceable or not _html_field_replaceable(k, html_row):
+                        logger.info(
+                            "skip PDF %s y=%s reason=html_present value=%s",
+                            k,
+                            y,
+                            v,
+                        )
+                        continue
                 logger.info(
-                    "skip PDF %s y=%s reason=html_present value=%s",
+                    "overwrite HTML %s y=%s html=%s pdf=%s pdf_first=%s",
                     k,
                     y,
+                    existing,
                     v,
+                    pdf_first,
                 )
-                continue
 
+            if k == "ga_expense":
+                v = normalize_ga_expense(v)
+                if v is None:
+                    continue
             merged[y][k] = v
 
     for y in list(merged.keys()):
-        merged[y] = _reconcile_balance_sheet(merged[y])
+        row = _reconcile_balance_sheet(merged[y])
+        harmonize_intra_year_pl_scale(row)
+        merged[y] = sanitize_operating_metrics(row, company=company)
     return merged

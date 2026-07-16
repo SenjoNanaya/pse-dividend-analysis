@@ -95,7 +95,7 @@ The pipeline navigates PSE Edge's complex architecture:
 
 - **REST API** — paginated list with search, ordering, and filters; detail endpoint with financials and dividends; facet endpoint for filter options
 - **React registry** — sortable columns (price, market cap, yield, checks, …), sector / cap-tier / qualified / incomplete filters
-- **Screening thresholds** — freeform P/E, P/B, ROE %, and yield % inputs Apply to the list and rewrite Screening Preview / report checklist labels; CHECKS / &gt;5 PASS rescore live
+- **Screening thresholds** — freeform P/E, P/B, ROE %, yield %, and ROIC % inputs Apply to the list and rewrite Screening Preview / report checklist labels; CHECKS / &gt;5 PASS rescore live
 - **Row preview** — checklist + ratios without leaving the directory
 - **Compare matrix** — select up to 4 tickers; metrics table + YoY chart overlays
 - **Fundamental report** — growth charts, liabilities / balance-sheet history for BV derivation (A−L), ratios, checklist, dividend history, fair-value scenarios, ticker news feed
@@ -105,18 +105,20 @@ The pipeline navigates PSE Edge's complex architecture:
 ### Analysis metrics
 
 - YoY growth and 3-year CAGR
-- P/E, P/B, ROE, ROIC (proper when cash+CL+NOPAT inputs exist; else NI proxy), TTM dividend yield, dividend cover
+- P/E, P/B, ROE, ROIC (proper when cash+CL+NOPAT inputs exist; else NI proxy; banks use NI÷equity capital return), TTM dividend yield, dividend cover
 - Fundamental checklist (pass / fail / N/A)
 - DCF-style zero-growth fair value scenarios
 - Optional matplotlib bar charts via the CLI pipeline
 
-### ROIC: proper vs proxy
+### ROIC: proper vs proxy vs bank equity
 
 | Mode | Numerator | Invested capital | When used |
 |------|-----------|------------------|-----------|
 | **Proper** | NOPAT = operating income (or GP−GA) × (1−t) | Assets − Cash − Current liabilities | Cash + CL present on ≥1 year |
 | **Proxy** | Net income | Assets − CL (else Assets) | Fallback when proper inputs missing |
-| **N/A** | — | — | Banks / insurance |
+| **Equity** | Net income | Average stockholders’ equity | Banks / insurance (industrial ROIC not applied) |
+
+Bank “capital return” is labeled separately in the UI (not as proper ROIC) and cannot win Compare’s ROIC highlight.
 
 **PDF is a fill-nulls helper, not a requirement.** EDGE HTML pulls cash & CL when those line items appear in disclosure tables (expanded synonyms such as “cash on hand and in banks”; year-header junk like `cash=2024` is dropped). Ranked 17-A/AFS PDFs overlay the closed whitelist (`cash`, `CL`, op income / GP / GA, tax, IBT) only onto existing fiscal years and only when HTML left the field null. Page routing requires statement titles plus tabular peso density so PFRS/MD&A prose does not invent fake FS pages.
 
@@ -127,6 +129,7 @@ The pipeline navigates PSE Edge's complex architecture:
 | Proxy ROIC | Available widely from HTML assets / NI / CL |
 | Proper ROIC (HTML cash or text-layer FS PDF) | Works when cash + CL + op/GP−GA land |
 | Proper ROIC on image-only AFS | Works when Tesseract tessdata is available; otherwise soft-skip |
+| Bank / insurance capital return | NI ÷ average equity (`mode: equity`); not classical ROIC |
 
 Cash capture uses expanded BS synonyms plus a cash-flow **ending balance** fallback when the BS cash line is missing. Ranked AFS/17-A PDFs can OCR sparse packs and pull ending cash from CF pages as a fill-nulls source.
 
@@ -167,6 +170,7 @@ Edge/
 ├── reports/                    # optional matplotlib output (gitignored)
 ├── scripts/
 │   ├── backfill_div_yield.py       # recompute persisted div_yield
+│   ├── backfill_roic.py            # recompute persisted latest ROIC
 │   ├── backfill_struct_checks.py   # structural checklist bits for live CHECKS
 │   ├── backfill_stockholders_equity.py  # equity from A − L when missing
 ├── fixtures/roic/              # small text fixtures for ROIC PDF smoke tests
@@ -267,10 +271,11 @@ python main.py
 
 Loops every row in `companies.csv`, scrapes PSE Edge, and writes to `data/pse_analysis.db`. Incomplete companies are skipped and logged in `processing_log`. Optional matplotlib reports land in `reports/`.
 
-To refresh persisted yields after dividend/parser fixes:
+To refresh persisted yields / ROIC after metric fixes:
 
 ```bash
 python scripts/backfill_div_yield.py
+python scripts/backfill_roic.py
 ```
 
 ### 2. Start the Django API
@@ -287,7 +292,7 @@ API base: `http://127.0.0.1:8000/`
 | `GET /api/companies/?search=<q>` | Search symbol, name, ticker, sector, subsector |
 | `GET /api/companies/?ordering=div_yield` | Sort (prefix `-` for descending); checks use `live_check_pass` |
 | `GET /api/companies/?sector=...&cap_tier=MID&qualified=true&incomplete=false` | Registry filters |
-| `GET /api/companies/?pe_max=10&pb_max=0.5&roe_min=0.2&yield_min=0.04` | Screening thresholds |
+| `GET /api/companies/?pe_max=10&pb_max=0.5&roe_min=0.2&yield_min=0.04&roic_min=0.08` | Screening thresholds |
 | `GET /api/companies/facets/` | Distinct sectors / subsectors / cap tier / threshold presets |
 | `GET /api/companies/<id>/` | Detail with financials and dividends |
 | `GET /api/companies/<id>/news/` | Recent headlines (Google News RSS proxy, cached ~20 min) |
@@ -302,6 +307,7 @@ API base: `http://127.0.0.1:8000/`
 | P/B max (e.g. `0.5`) | `pb_max` | `P/B < {n}` |
 | ROE min **%** (e.g. `20` → `0.2`) | `roe_min` (fraction) | `ROE > {n}%` |
 | Yield min **%** (e.g. `4` → `0.04`) | `yield_min` (fraction) | List filter only |
+| ROIC min **%** (e.g. `8` → `0.08`) | `roic_min` (fraction) | List filter only |
 
 Leave a field blank for “All” — checklist still uses classic defaults (P/E &lt; 22, P/B &lt; 1, ROE &gt; 10%). Invalid or negative values are rejected on Apply.
 

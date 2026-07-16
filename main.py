@@ -6,14 +6,14 @@ from src import db
 from src.db import get_connection, init_db
 from src import parser
 from src.report_metrics import compute_screening_summary, map_shares_to_fiscal_years
-from src.filing_triage import select_attachments_to_download
+from src.filing_triage import is_financial_sector, select_attachments_to_download
 from src.pdf_roic_extract import (
     extract_roic_metrics_from_pdf_bytes,
     fill_html_whitelist,
     prefer_scope_metrics,
     plausible_fiscal_years,
 )
-from src.scale_guard import repair_thousand_scale_jumps
+from src.scale_guard import harmonize_yearly_pl_scale, repair_thousand_scale_jumps
 import os
 
 
@@ -94,7 +94,12 @@ def run_pipeline():
 
                 # PDF attachments (ROIC whitelist); OCR runs automatically on sparse/image-only AFS
                 attachments = parser.parse_disclosure_attachments(viewer_html)
-                to_fetch = select_attachments_to_download(attachments, max_files=6)
+                max_pdfs = (
+                    6
+                    if is_financial_sector(stock_info.get("sector"), subsector)
+                    else 8
+                )
+                to_fetch = select_attachments_to_download(attachments, max_files=max_pdfs)
                 for att in to_fetch:
                     try:
                         referer = f"https://edge.pse.com.ph/openDiscViewer.do?edge_no={edge_no}"
@@ -126,7 +131,15 @@ def run_pipeline():
 
             if pdf_metric_candidates:
                 pdf_merged = prefer_scope_metrics(pdf_metric_candidates)
-                yearly_metrics = fill_html_whitelist(yearly_metrics, pdf_merged)
+                yearly_metrics = fill_html_whitelist(
+                    yearly_metrics,
+                    pdf_merged,
+                    company={
+                        "sector": stock_info.get("sector"),
+                        "subsector": subsector,
+                        "ticker": stock_info.get("ticker"),
+                    },
+                )
 
             # Shares (Form 17-C)
             historical_shares = {}
@@ -173,6 +186,9 @@ def run_pipeline():
             )
             for note in scale_actions:
                 logger.warning("Scale guard %s: %s", cmpy_id, note)
+            yearly_metrics, pl_actions = harmonize_yearly_pl_scale(yearly_metrics)
+            for note in pl_actions:
+                logger.warning("P&L scale %s: %s", cmpy_id, note)
 
             # Fill blank stock-page P/E, P/B, price, ROE from disclosures
             stock_info = parser.resolve_valuation_fallbacks(
@@ -237,6 +253,9 @@ def run_pipeline():
                     'income_tax_expense': metrics.get('income_tax_expense'),
                     'gross_profit': metrics.get('gross_profit'),
                     'ga_expense': metrics.get('ga_expense'),
+                    'cost_of_sales': metrics.get('cost_of_sales'),
+                    'interest_expense': metrics.get('interest_expense'),
+                    'other_expenses': metrics.get('other_expenses'),
                     'statement_scope': metrics.get('statement_scope'),
                     'current_ratio': year_ratios.get('current_ratio'),
                     'quick_ratio': year_ratios.get('quick_ratio'),
@@ -269,6 +288,8 @@ def run_pipeline():
                 {
                     'name': company_name,
                     'ticker': stock_info.get('ticker'),
+                    'sector': stock_info.get('sector'),
+                    'subsector': subsector,
                     'pe_ratio': stock_info.get('pe_ratio'),
                     'pb_ratio': stock_info.get('pb_ratio'),
                     'roe': stock_info.get('roe'),
@@ -286,6 +307,8 @@ def run_pipeline():
                 screening['check_evaluable_total'],
                 screening['info_incomplete'],
                 div_yield=screening.get('div_yield'),
+                roic=screening.get('roic'),
+                debt_to_equity=screening.get('debt_to_equity'),
                 check_struct_pass=screening.get('check_struct_pass'),
                 check_struct_eval=screening.get('check_struct_eval'),
             )
