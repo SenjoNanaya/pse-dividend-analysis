@@ -87,3 +87,23 @@ class PSEScraper:
         url = f"{self.base_url}/companyInformation/form.do?cmpy_id={cmpy_id}"
         response = self.session.get(url)
         return response.text
+
+    def fetch_attachment_file(self, file_id, referer=None):
+        """
+        Download a disclosure attachment (typically PDF) via downloadFile.do.
+        Returns response content bytes.
+        """
+        logger.info(f"Downloading attachment file_id={file_id}")
+        headers = {
+            **DEFAULT_HEADERS,
+            "Upgrade-Insecure-Requests": "1",
+        }
+        if referer:
+            headers["Referer"] = referer
+        url = f"{self.base_url}/downloadFile.do"
+        # EDGE form uses GET or POST with file_id; try GET first then POST
+        response = self.session.get(url, params={"file_id": file_id}, headers=headers)
+        if response.status_code >= 400 or len(response.content) < 100:
+            response = self.session.post(url, data={"file_id": file_id}, headers=headers)
+        response.raise_for_status()
+        return response.content

@@ -4,7 +4,14 @@ import CompareView from './components/CompareView';
 import NierSelect from './components/NierSelect';
 import NierShell from './components/NierShell';
 import RegistryPreview from './components/RegistryPreview';
-import { formatMarketCap, formatPct, formatPrice, marketCapTier } from './lib/metrics';
+import TickerNews from './components/TickerNews';
+import {
+  formatMarketCap,
+  formatPct,
+  formatPrice,
+  marketCapTier,
+  normalizeThresholds,
+} from './lib/metrics';
 
 const API_BASE = 'http://127.0.0.1:8000/api/companies';
 const FACETS_URL = 'http://127.0.0.1:8000/api/companies/facets/';
@@ -20,8 +27,8 @@ const SORT_FIELDS = {
   yield: 'div_yield',
   sector: 'sector',
   subsector: 'subsector',
-  checks: 'check_pass_count',
-  pass5: 'check_pass_count',
+  checks: 'live_check_pass',
+  pass5: 'live_check_pass',
   incomplete: 'info_incomplete',
 };
 
@@ -30,11 +37,94 @@ const EMPTY_FILTERS = {
   capTier: '',
   qualified: '', // '' | 'true' | 'false'
   incomplete: '', // '' | 'true' | 'false'
+  peMax: '', // absolute ratio
+  pbMax: '', // absolute ratio
+  roeMin: '', // percent in UI (20 = 20%)
+  yieldMin: '', // percent in UI (4 = 4%)
+  roicMin: '', // percent in UI (8 = 8%)
+  deMax: '', // absolute D/E (liabilities ÷ equity)
 };
+
+const PE_PB_MAX = 1000;
+
+/** Parse a non-negative finite number; empty string → null. */
+function parseNonNeg(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return { ok: true, value: null };
+  const n = Number(s);
+  if (!Number.isFinite(n) || n < 0) {
+    return { ok: false, value: null };
+  }
+  return { ok: true, value: n };
+}
+
+/**
+ * Validate threshold draft fields.
+ * Returns { ok, error, peMax, pbMax, roeMinFrac, yieldMinFrac, roicMinFrac, deMax }.
+ */
+function parseThresholdFilters(filters) {
+  const pe = parseNonNeg(filters.peMax);
+  const pb = parseNonNeg(filters.pbMax);
+  const roePct = parseNonNeg(filters.roeMin);
+  const yieldPct = parseNonNeg(filters.yieldMin);
+  const roicPct = parseNonNeg(filters.roicMin);
+  const de = parseNonNeg(filters.deMax);
+
+  if (!pe.ok) return { ok: false, error: 'P/E max must be a non-negative number.' };
+  if (!pb.ok) return { ok: false, error: 'P/B max must be a non-negative number.' };
+  if (!roePct.ok) return { ok: false, error: 'ROE min must be a non-negative percent.' };
+  if (!yieldPct.ok) return { ok: false, error: 'Yield min must be a non-negative percent.' };
+  if (!roicPct.ok) return { ok: false, error: 'ROIC min must be a non-negative percent.' };
+  if (!de.ok) return { ok: false, error: 'D/E max must be a non-negative number.' };
+
+  if (pe.value != null && pe.value > PE_PB_MAX) {
+    return { ok: false, error: `P/E max must be ≤ ${PE_PB_MAX}.` };
+  }
+  if (pb.value != null && pb.value > PE_PB_MAX) {
+    return { ok: false, error: `P/B max must be ≤ ${PE_PB_MAX}.` };
+  }
+  if (roePct.value != null && roePct.value > 1000) {
+    return { ok: false, error: 'ROE min percent looks too large (use e.g. 20 for 20%).' };
+  }
+  if (yieldPct.value != null && yieldPct.value > 1000) {
+    return { ok: false, error: 'Yield min percent looks too large (use e.g. 4 for 4%).' };
+  }
+  if (roicPct.value != null && roicPct.value > 1000) {
+    return { ok: false, error: 'ROIC min percent looks too large (use e.g. 8 for 8%).' };
+  }
+  if (de.value != null && de.value > PE_PB_MAX) {
+    return { ok: false, error: `D/E max must be ≤ ${PE_PB_MAX}.` };
+  }
+
+  return {
+    ok: true,
+    error: null,
+    peMax: pe.value,
+    pbMax: pb.value,
+    roeMinFrac: roePct.value != null ? roePct.value / 100 : null,
+    yieldMinFrac: yieldPct.value != null ? yieldPct.value / 100 : null,
+    roicMinFrac: roicPct.value != null ? roicPct.value / 100 : null,
+    deMax: de.value,
+  };
+}
+
+/** Thresholds for checklist / report (defaults when field is empty). */
+function screeningThresholds(filters) {
+  const parsed = parseThresholdFilters(filters);
+  if (!parsed.ok) {
+    return normalizeThresholds({});
+  }
+  return normalizeThresholds({
+    peMax: parsed.peMax ?? undefined,
+    pbMax: parsed.pbMax ?? undefined,
+    roeMin: parsed.roeMinFrac ?? undefined,
+    deMax: parsed.deMax ?? undefined,
+  });
+}
 
 function buildListUrl({
   search = '',
-  ordering = '-check_pass_count',
+  ordering = '-live_check_pass',
   filters = EMPTY_FILTERS,
   pageUrl = null,
 } = {}) {
@@ -50,8 +140,36 @@ function buildListUrl({
   if (filters.incomplete === 'true' || filters.incomplete === 'false') {
     params.set('incomplete', filters.incomplete);
   }
+  const parsed = parseThresholdFilters(filters);
+  if (parsed.ok) {
+    if (parsed.peMax != null) params.set('pe_max', String(parsed.peMax));
+    if (parsed.pbMax != null) params.set('pb_max', String(parsed.pbMax));
+    if (parsed.roeMinFrac != null) params.set('roe_min', String(parsed.roeMinFrac));
+    if (parsed.yieldMinFrac != null) params.set('yield_min', String(parsed.yieldMinFrac));
+    if (parsed.roicMinFrac != null) params.set('roic_min', String(parsed.roicMinFrac));
+    if (parsed.deMax != null) params.set('de_max', String(parsed.deMax));
+  }
   const q = params.toString();
   return `${API_BASE}/${q ? `?${q}` : ''}`;
+}
+
+function ThresholdInput({ label, hint, value, onChange, ariaLabel }) {
+  return (
+    <label className="nier-filter-field nier-threshold-field">
+      <span>{label}</span>
+      <input
+        type="number"
+        inputMode="decimal"
+        step="any"
+        min="0"
+        placeholder={hint}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="nier-input nier-threshold-input"
+        aria-label={ariaLabel || label}
+      />
+    </label>
+  );
 }
 
 function SortHeader({ label, column, ordering, onSort }) {
@@ -90,9 +208,11 @@ export default function App() {
   const [companies, setCompanies] = useState([]);
   const [search, setSearch] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [ordering, setOrdering] = useState('-check_pass_count');
+  const [ordering, setOrdering] = useState('-live_check_pass');
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
+  const [filterError, setFilterError] = useState(null);
+  const appliedThresholds = screeningThresholds(appliedFilters);
   const [sectors, setSectors] = useState([]);
   const [pageUrl, setPageUrl] = useState(null);
   const [nextPage, setNextPage] = useState(null);
@@ -218,28 +338,38 @@ export default function App() {
     return () => { cancelled = true; };
   }, [selectedCompanyId]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
+  const commitFilters = (nextFilters) => {
+    const parsed = parseThresholdFilters(nextFilters);
+    if (!parsed.ok) {
+      setFilterError(parsed.error);
+      return false;
+    }
+    setFilterError(null);
     setSearchQuery(search);
-    setAppliedFilters(filters);
+    setAppliedFilters(nextFilters);
     setPageUrl(null);
     setPreviewCompanyId(null);
+    return true;
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    commitFilters(filters);
   };
 
   const handleFilterChange = (key, value) => {
+    setFilterError(null);
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const applyFilters = () => {
-    setSearchQuery(search);
-    setAppliedFilters(filters);
-    setPageUrl(null);
-    setPreviewCompanyId(null);
+    commitFilters(filters);
   };
 
   const clearFilters = () => {
     setFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
+    setFilterError(null);
     setSearch('');
     setSearchQuery('');
     setPageUrl(null);
@@ -369,7 +499,11 @@ export default function App() {
     }
     return (
       <NierShell>
-        <CompanyReport company={companyDetails} onBack={backToDirectory} />
+        <CompanyReport
+          company={companyDetails}
+          onBack={backToDirectory}
+          thresholds={appliedThresholds}
+        />
       </NierShell>
     );
   }
@@ -382,6 +516,7 @@ export default function App() {
           onBack={backToDirectory}
           onRemove={removeComparePick}
           onOpen={openCompany}
+          thresholds={appliedThresholds}
         />
       </NierShell>
     );
@@ -405,8 +540,8 @@ export default function App() {
         </div>
       </header>
 
-      <div className="nier-dashboard-grid max-w-[90rem] mx-auto">
-        <div className="nier-table-column">
+      <div className="nier-dashboard-stack max-w-[90rem] mx-auto">
+        <div className="nier-controls">
           <form onSubmit={handleSearch} className="nier-search-form" role="search">
             <input
               type="text"
@@ -458,6 +593,48 @@ export default function App() {
                 { value: 'false', label: 'No' },
               ]}
             />
+            <ThresholdInput
+              label="P/E MAX"
+              hint="e.g. 10 — blank = default 22"
+              value={filters.peMax}
+              onChange={(v) => handleFilterChange('peMax', v)}
+              ariaLabel="P/E maximum"
+            />
+            <ThresholdInput
+              label="P/B MAX"
+              hint="e.g. 0.5 — blank = default 1"
+              value={filters.pbMax}
+              onChange={(v) => handleFilterChange('pbMax', v)}
+              ariaLabel="P/B maximum"
+            />
+            <ThresholdInput
+              label="ROE MIN %"
+              hint="e.g. 20 — blank = default 10%"
+              value={filters.roeMin}
+              onChange={(v) => handleFilterChange('roeMin', v)}
+              ariaLabel="ROE minimum percent"
+            />
+            <ThresholdInput
+              label="YIELD MIN %"
+              hint="e.g. 4 — blank = any"
+              value={filters.yieldMin}
+              onChange={(v) => handleFilterChange('yieldMin', v)}
+              ariaLabel="Dividend yield minimum percent"
+            />
+            <ThresholdInput
+              label="ROIC MIN %"
+              hint="e.g. 8 — blank = any"
+              value={filters.roicMin}
+              onChange={(v) => handleFilterChange('roicMin', v)}
+              ariaLabel="ROIC minimum percent"
+            />
+            <ThresholdInput
+              label="D/E MAX"
+              hint="e.g. 1.5 — blank = default 2"
+              value={filters.deMax}
+              onChange={(v) => handleFilterChange('deMax', v)}
+              ariaLabel="Debt to equity maximum"
+            />
             <div className="nier-filter-actions">
               <button type="button" className="nier-btn" onClick={applyFilters}>
                 APPLY
@@ -473,6 +650,11 @@ export default function App() {
                 CLEAR
               </button>
             </div>
+            {filterError && (
+              <p className="nier-filter-error" role="alert">
+                {filterError}
+              </p>
+            )}
           </div>
 
           {comparePicks.length > 0 && (
@@ -513,7 +695,10 @@ export default function App() {
               </div>
             </div>
           )}
+        </div>
 
+        <div className="nier-dashboard-grid">
+          <div className="nier-table-column">
           <p className="nier-row-hint" aria-hidden="true">
             Row keys: Enter / Space = preview · O = open report · double-click = open
           </p>
@@ -673,13 +858,20 @@ export default function App() {
           </nav>
         </div>
 
-        <div className="nier-detail-column">
-          <RegistryPreview
-            company={previewCompany}
-            status={previewStatus}
-            onOpen={openCompany}
-            onClear={clearPreview}
-          />
+          <aside className="nier-detail-column">
+            <RegistryPreview
+              company={previewCompany}
+              status={previewStatus}
+              onOpen={openCompany}
+              onClear={clearPreview}
+              thresholds={appliedThresholds}
+            />
+            <TickerNews
+              companyId={previewCompanyId}
+              ticker={previewCompany?.ticker || previewCompany?.symbol}
+              compact
+            />
+          </aside>
         </div>
       </div>
     </NierShell>

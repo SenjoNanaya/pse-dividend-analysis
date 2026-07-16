@@ -1,0 +1,17 @@
+# Accounting-policy prose (Basic Energy–style). Names statement titles but is not an FS.
+There were no disagreements with the Company's external auditors on any accounting
+and financial disclosures in the 2024 Audited Financial Statements of the Company.
+
+The accounting policies adopted are consistent with those of the previous financial
+year, except for the adoption of the following amended PFRS:
+
+Relevant new and amendments to PFRS Accounting Standards, which are not yet
+effective as at December 31, 2024 and have not been applied in preparing the
+consolidated financial statements, are summarized below.
+
+PFRS 18, Presentation and Disclosure in Financial Statements — This standard replaces
+PAS 1, Presentation of Financial Statements, and sets out the requirements for the
+presentation and disclosure of information. The standard introduces new categories
+and sub-totals in the statements of comprehensive income, disclosures on
+management-defined performance measures, and new principles for grouping of
+information.

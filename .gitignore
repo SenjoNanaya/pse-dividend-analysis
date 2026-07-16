@@ -13,6 +13,7 @@ logs/
 test_data/
 tests/
 reports/
+docs/
 # Except headers or configuration examples if you want to keep data/ structure intact
 !data/.gitkeep
 !logs/.gitkeep

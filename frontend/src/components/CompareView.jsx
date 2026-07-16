@@ -56,13 +56,19 @@ function CompareCell({ children, best = false }) {
   );
 }
 
-export default function CompareView({ picks, onBack, onRemove, onOpen }) {
+export default function CompareView({ picks, onBack, onRemove, onOpen, thresholds }) {
   const [reports, setReports] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState(null);
   const [panel, setPanel] = useState('both'); // metrics | charts | both
 
   const pickKey = picks.map((p) => p.id).join(',');
+  const thresholdKey = [
+    thresholds?.peMax,
+    thresholds?.pbMax,
+    thresholds?.roeMin,
+    thresholds?.deMax,
+  ].join('|');
 
   useEffect(() => {
     if (!picks.length) {
@@ -85,7 +91,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
     )
       .then((companies) => {
         if (cancelled) return;
-        setReports(companies.map((c) => buildReport(c)));
+        setReports(companies.map((c) => buildReport(c, thresholds)));
         setStatus('ready');
       })
       .catch((err) => {
@@ -95,7 +101,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
       });
 
     return () => { cancelled = true; };
-  }, [pickKey]); // eslint-disable-line react-hooks/exhaustive-deps -- pick ids only
+  }, [pickKey, thresholdKey]); // eslint-disable-line react-hooks/exhaustive-deps -- pick ids + thresholds
 
   if (status === 'loading' || status === 'idle') {
     return (
@@ -119,6 +125,13 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
   const peBest = bestIndex(reports.map((r) => r.ratios.pe), 'min');
   const pbBest = bestIndex(reports.map((r) => r.ratios.pb), 'min');
   const roeBest = bestIndex(reports.map((r) => r.ratios.roe), 'max');
+  // Proxy ROIC must not win "best" against proper NOPAT-based ROIC
+  const roicBest = bestIndex(
+    reports.map((r) =>
+      r.roicMeta?.mode === 'proper' ? r.ratios.roic : null,
+    ),
+    'max',
+  );
   const yieldBest = bestIndex(reports.map((r) => r.divYield), 'max');
   const checksBest = bestIndex(
     reports.map((r) => r.checklistScore?.pass ?? null),
@@ -127,6 +140,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
   const bvCagrBest = bestIndex(reports.map((r) => r.growth.bookValue), 'max');
   const niCagrBest = bestIndex(reports.map((r) => r.growth.income), 'max');
   const asCagrBest = bestIndex(reports.map((r) => r.growth.assets), 'max');
+  const liabCagrBest = bestIndex(reports.map((r) => r.growth.liabilities), 'min');
 
   const checkLabels = reports[0]?.checklist?.map((c) => c.label) || [];
   const showMetrics = panel === 'metrics' || panel === 'both';
@@ -289,6 +303,23 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
                     ))}
                   </tr>
                   <tr>
+                    <th scope="row">ROIC</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === roicBest}>
+                        {formatPct(r.ratios.roic)}
+                        {r.roicMeta?.mode === 'proxy' ? (
+                          <span className="compare-roic-mode"> (proxy)</span>
+                        ) : null}
+                        {r.roicMeta?.mode === 'equity' ? (
+                          <span className="compare-roic-mode"> (equity)</span>
+                        ) : null}
+                        {r.roicMeta?.mode === 'na' ? (
+                          <span className="compare-roic-mode"> (n/a)</span>
+                        ) : null}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
                     <th scope="row">Checks</th>
                     {reports.map((r, i) => {
                       const score = r.checklistScore;
@@ -323,6 +354,14 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
                     {reports.map((r, i) => (
                       <CompareCell key={r.companyId} best={i === asCagrBest}>
                         {formatPct(r.growth.assets)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Liab. CAGR</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === liabCagrBest}>
+                        {formatPct(r.growth.liabilities)}
                       </CompareCell>
                     ))}
                   </tr>
@@ -364,7 +403,8 @@ export default function CompareView({ picks, onBack, onRemove, onOpen }) {
               </table>
             </div>
             <p className="compare-note">
-              Orange highlight = best among the set (lowest P/E &amp; P/B; highest yield, ROE, checks, CAGRs).
+              Orange highlight = best among the set (lowest P/E, P/B &amp; liabilities CAGR; highest yield, ROE, proper ROIC only, checks, other CAGRs).
+              Proxy ROIC and bank equity-capital returns are shown for context but cannot win the ROIC highlight.
               Click a ticker to open its full record.
             </p>
           </div>

@@ -50,6 +50,11 @@ export default function ChecklistPreview({
               {' · '}
               P/B {report.ratios.pb != null ? report.ratios.pb.toFixed(2) : '—'}
               {' · '}
+              D/E{' '}
+              {report.ratios.debtEquity != null
+                ? report.ratios.debtEquity.toFixed(2)
+                : '—'}
+              {' · '}
               ROE {formatPct(report.ratios.roe)}
             </span>
           )}

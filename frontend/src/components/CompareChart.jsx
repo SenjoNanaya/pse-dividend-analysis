@@ -110,7 +110,10 @@ export const COMPARE_CHART_DEFS = [
   { key: 'bookValue', title: 'Book Value — YoY' },
   { key: 'netIncome', title: 'Net Income — YoY (B PHP)' },
   { key: 'assets', title: 'Total Assets — YoY (B PHP)' },
+  { key: 'liabilities', title: 'Total Liabilities — YoY (B PHP)' },
   { key: 'revenue', title: 'Revenue — YoY (B PHP)' },
   { key: 'eps', title: 'EPS — YoY' },
+  { key: 'roic', title: 'ROIC / bank capital return — YoY %' },
+  { key: 'debtEquity', title: 'Debt / Equity — YoY' },
   { key: 'dividends', title: 'Common Dividends / Share — YoY' },
 ];

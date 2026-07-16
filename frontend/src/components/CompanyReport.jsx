@@ -1,9 +1,12 @@
 import MetricBarChart from './MetricBarChart';
+import BalanceSheetChart from './BalanceSheetChart';
 import ChecklistPreview from './ChecklistPreview';
-import { buildReport, formatPct, formatPhp } from '../lib/metrics';
+import TickerNews from './TickerNews';
+import { buildReport, formatBillions, formatPct, formatPhp } from '../lib/metrics';
 
-export default function CompanyReport({ company, onBack }) {
-  const report = buildReport(company);
+export default function CompanyReport({ company, onBack, thresholds }) {
+  const report = buildReport(company, thresholds);
+  const bvDer = report.bvDerivation || {};
   const dateLabel = report.asOf.toLocaleDateString('en-US', {
     month: 'numeric',
     day: 'numeric',
@@ -53,6 +56,11 @@ export default function CompanyReport({ company, onBack }) {
           color="#7d8a6a"
         />
         <MetricBarChart
+          title="Total Liabilities — YoY"
+          data={report.charts.liabilities}
+          color="#8a6a5a"
+        />
+        <MetricBarChart
           title="Revenue — YoY"
           data={report.charts.revenue}
           color="#6a8a8a"
@@ -61,6 +69,24 @@ export default function CompanyReport({ company, onBack }) {
           title="EPS — YoY"
           data={report.charts.eps}
           color="#8a6a5a"
+        />
+        <MetricBarChart
+          title={
+            report.roicMeta?.mode === 'proper'
+              ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY %`
+              : report.roicMeta?.mode === 'equity'
+                ? 'Bank capital return (NI ÷ equity) — YoY %'
+                : report.roicMeta?.mode === 'na'
+                  ? 'ROIC — N/A (financials)'
+                  : 'ROIC (proxy) — YoY %'
+          }
+          data={report.charts.roic}
+          color="#6a7a5a"
+        />
+        <MetricBarChart
+          title="Debt / Equity — YoY"
+          data={report.charts.debtEquity}
+          color="#8a5a6a"
         />
         <div className="report-side-panel">
           <div className="report-panel-title">Growth &amp; Ratios</div>
@@ -88,12 +114,130 @@ export default function CompanyReport({ company, onBack }) {
                 <td>ROE</td>
                 <td className="num">{formatPct(report.ratios.roe)}</td>
               </tr>
+              <tr>
+                <td>Liabilities CAGR</td>
+                <td className="num">{formatPct(report.growth.liabilities)}</td>
+                <td>
+                  {report.roicMeta?.mode === 'equity'
+                    ? 'Bank ROE capital'
+                    : 'ROIC'}
+                </td>
+                <td className="num">{formatPct(report.ratios.roic)}</td>
+              </tr>
+              <tr>
+                <td>Debt / Equity</td>
+                <td className="num">
+                  {report.ratios.debtEquity != null
+                    ? report.ratios.debtEquity.toFixed(2)
+                    : '—'}
+                </td>
+                <td />
+                <td />
+              </tr>
             </tbody>
           </table>
           <p className="report-note">
-            Income and assets scaled to billions PHP. Per-share metrics from annual filings.
+            Income, assets, and liabilities scaled to billions PHP.
+            {report.roicMeta?.mode === 'proper' && (
+              <>
+                {' '}Proper ROIC = NOPAT ÷ average (Assets − Cash − Current Liabilities)
+                {report.roicMeta?.taxAssumed ? ' (tax rate assumed 25%).' : '.'}
+              </>
+            )}
+            {report.roicMeta?.mode === 'proxy' && (
+              <>
+                {' '}Proxy ROIC = NI ÷ average invested capital
+                {report.roicMeta?.usedCurrentLiab
+                  ? ' (Assets − Current Liabilities).'
+                  : ' (Total Assets — ROA-like).'}
+              </>
+            )}
+            {report.roicMeta?.mode === 'equity' && (
+              <>
+                {' '}Banks / insurance: capital return = NI ÷ average stockholders&apos; equity
+                (industrial ROIC is not applied). Closely related to ROE.
+              </>
+            )}
+            {report.roicMeta?.mode === 'na' && (
+              <> Classical ROIC is not applied to banks / insurance.</>
+            )}
+            {' '}
             Price and ratios sourced from EDGE stock data, Form 17-A disclosures, or derived values.
           </p>
+        </div>
+      </div>
+
+      <h2 className="report-section-label">Book Value Derivation</h2>
+      <p className="report-note report-note--section">
+        Book equity ≈ Assets − Liabilities. Reported BVPS comes from the filing; derived BVPS uses
+        equity ÷ outstanding shares when both are available.
+      </p>
+      <div className="report-bv-derivation">
+        <BalanceSheetChart data={report.charts.balanceSheet} height={240} />
+        <div className="report-side-panel report-bv-panel">
+          <div className="report-panel-title">Latest year identity</div>
+          <table className="report-table">
+            <tbody>
+              <tr>
+                <td>Total Assets</td>
+                <td className="num">
+                  {bvDer.assets != null ? `${formatBillions(bvDer.assets)} B` : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>Total Liabilities</td>
+                <td className="num">
+                  {bvDer.liabilities != null
+                    ? `${formatBillions(bvDer.liabilities)} B`
+                    : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>Cash &amp; Equivalents</td>
+                <td className="num">
+                  {bvDer.cash != null ? `${formatBillions(bvDer.cash)} B` : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>Current Liabilities</td>
+                <td className="num">
+                  {bvDer.currentLiabilities != null
+                    ? `${formatBillions(bvDer.currentLiabilities)} B`
+                    : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>IC (A − Cash − CL)</td>
+                <td className="num">
+                  {bvDer.investedCapital != null
+                    ? `${formatBillions(bvDer.investedCapital)} B`
+                    : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>Equity (A − L)</td>
+                <td className="num">
+                  {bvDer.equity != null ? `${formatBillions(bvDer.equity)} B` : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>BVPS (reported)</td>
+                <td className="num">
+                  {bvDer.bookValueReported != null
+                    ? formatPhp(bvDer.bookValueReported, 2)
+                    : '—'}
+                </td>
+              </tr>
+              <tr>
+                <td>BVPS (equity ÷ shares)</td>
+                <td className="num">
+                  {bvDer.bookValueDerived != null
+                    ? formatPhp(bvDer.bookValueDerived, 2)
+                    : '—'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -118,6 +262,30 @@ export default function CompanyReport({ company, onBack }) {
             color="#7d8a6a"
             height={100}
           />
+          <MetricBarChart
+            title="Total Liabilities"
+            data={report.charts.liabilities.slice(-4)}
+            color="#8a6a5a"
+            height={100}
+          />
+          <MetricBarChart
+            title={
+              report.roicMeta?.mode === 'equity'
+                ? 'Bank capital return %'
+                : report.roicMeta?.mode === 'proper'
+                  ? 'ROIC %'
+                  : 'ROIC (proxy) %'
+            }
+            data={report.charts.roic.slice(-4)}
+            color="#6a7a5a"
+            height={100}
+          />
+          <MetricBarChart
+            title="Debt / Equity"
+            data={(report.charts.debtEquity || []).slice(-4)}
+            color="#8a5a6a"
+            height={100}
+          />
         </div>
 
         <div className="report-dividends-block">
@@ -136,6 +304,7 @@ export default function CompanyReport({ company, onBack }) {
                 <thead>
                   <tr>
                     <th>Security</th>
+                    <th>Type</th>
                     <th>Rate</th>
                     <th>Ex-Date</th>
                     <th>Record</th>
@@ -143,20 +312,27 @@ export default function CompanyReport({ company, onBack }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {report.dividend.history.slice(0, 12).map((row) => (
-                    <tr
-                      key={`${row.security}-${row.exDate}-${row.amount}`}
-                      className={row.isCommon ? '' : 'report-div-pref'}
-                    >
-                      <td title={row.security}>
-                        {row.isCommon ? 'COMMON' : row.security}
-                      </td>
-                      <td className="num">{formatPhp(row.amount, 4)}</td>
-                      <td>{row.exDate || '—'}</td>
-                      <td>{row.recordDate || '—'}</td>
-                      <td>{row.paymentDate || '—'}</td>
-                    </tr>
-                  ))}
+                  {report.dividend.history.slice(0, 12).map((row) => {
+                    const dtype = String(row.type || 'cash').toLowerCase();
+                    const isCash = dtype === 'cash';
+                    return (
+                      <tr
+                        key={`${row.security}|${dtype}|${row.exDate}|${row.amount}|${row.recordDate || ''}`}
+                        className={row.isCommon ? '' : 'report-div-pref'}
+                      >
+                        <td title={row.security}>
+                          {row.isCommon ? 'COMMON' : row.security}
+                        </td>
+                        <td>{dtype}</td>
+                        <td className="num">
+                          {isCash ? formatPhp(row.amount, 4) : '—'}
+                        </td>
+                        <td>{row.exDate || '—'}</td>
+                        <td>{row.recordDate || '—'}</td>
+                        <td>{row.paymentDate || '—'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -209,10 +385,13 @@ export default function CompanyReport({ company, onBack }) {
         </div>
       </div>
 
+      <TickerNews companyId={company.id} ticker={report.displayTicker} />
+
       <footer className="report-footer">
         <div className="report-note-block">
           <strong>SYS_NOTE:</strong> Generated from PSE EDGE annual filings.
           Interim quarterly series will populate when available in the registry.
+          News headlines are aggregated from Google News RSS and may be incomplete.
         </div>
         <div className="report-disclaimer">
           For informational use only — not investment advice.
