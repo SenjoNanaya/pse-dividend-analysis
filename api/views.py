@@ -7,6 +7,7 @@ from .models import Company
 from .filters import CompanyFilter
 from .serializers import CompanySerializer, CompanyDetailSerializer
 from .screening import annotate_live_checks, thresholds_from_request
+from .news import fetch_company_news
 from rest_framework.views import APIView
 
 
@@ -98,3 +99,26 @@ class CompanyDetailView(APIView):
         company = get_object_or_404(queryset, pk=pk)
         serializer = CompanyDetailSerializer(company, context={'request': request, 'thresholds': thresholds})
         return Response(serializer.data)
+
+
+class CompanyNewsView(APIView):
+    """Proxy Google News RSS for a company ticker/name (cached ~20 min)."""
+
+    def get(self, request, pk):
+        company = get_object_or_404(Company, pk=pk)
+        show_all = str(request.query_params.get("all", "")).lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+        payload = fetch_company_news(
+            ticker=company.ticker or company.symbol,
+            name=company.name,
+            company_id=company.id,
+            show_all=show_all,
+        )
+        return Response({
+            'company_id': company.id,
+            'ticker': company.ticker or company.symbol,
+            **payload,
+        })

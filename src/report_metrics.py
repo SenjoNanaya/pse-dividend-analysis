@@ -14,6 +14,23 @@ DEFAULT_THRESHOLDS = {
 # Checklist order: 0 PE, 1 PB, 2–6 structural, 7 ROE
 STRUCT_CHECK_INDEXES = (2, 3, 4, 5, 6)
 
+# P&L growth only meaningful when both periods are profitable (skip sign flips / zeros)
+PL_GROWTH_KEYS = frozenset({
+    "net_income",
+    "gross_revenue",
+    "revenue",
+    "eps",
+})
+# Exact zero is a placeholder, not a real revenue/EPS print
+ZERO_AS_MISSING_KEYS = frozenset({"revenue", "gross_revenue", "eps"})
+# Ignore YoY off a microscopically small profitable base (AB-style %)
+PL_MIN_ABS_PREV = {
+    "net_income": 1_000_000.0,
+    "gross_revenue": 1_000_000.0,
+    "revenue": 1_000_000.0,
+    "eps": 0.05,
+}
+
 
 def normalize_thresholds(thresholds=None):
     """Merge partial thresholds with defaults (snake_case keys)."""
@@ -27,6 +44,136 @@ def normalize_thresholds(thresholds=None):
     if thresholds.get("roe_min") is not None:
         out["roe_min"] = float(thresholds["roe_min"])
     return out
+
+
+def metric_value(value, key=None):
+    """safe_float with zero-revenue / zero-EPS treated as missing."""
+    v = safe_float(value)
+    if v is None:
+        return None
+    if key in ZERO_AS_MISSING_KEYS and v == 0:
+        return None
+    return v
+
+
+def growth_rate(prev, curr, *, key=None):
+    """
+    (curr - prev) / prev, or None when the % would be meaningless.
+
+    For P&L keys: both periods must be > 0 and |prev| above a floor.
+    Otherwise: skip zero prev and sign changes.
+    """
+    prev = safe_float(prev)
+    curr = safe_float(curr)
+    if prev is None or curr is None or prev == 0:
+        return None
+    if key in PL_GROWTH_KEYS:
+        if prev <= 0 or curr <= 0:
+            return None
+        floor = PL_MIN_ABS_PREV.get(key, 0.0)
+        if abs(prev) < floor:
+            return None
+    elif (prev > 0) != (curr > 0):
+        return None
+    rate = (curr - prev) / prev
+    # Exact flat prints as 0.0% and confuses the report — treat as N/A
+    if abs(rate) < 1e-6:
+        return None
+    return rate
+
+
+def cagr_rate(first, last, periods, *, key=None):
+    """CAGR over `periods` steps; P&L requires sustained positive values."""
+    first = safe_float(first)
+    last = safe_float(last)
+    if first is None or last is None or periods < 1 or first == 0:
+        return None
+    if key in PL_GROWTH_KEYS:
+        if first <= 0 or last <= 0:
+            return None
+        floor = PL_MIN_ABS_PREV.get(key, 0.0)
+        if abs(first) < floor:
+            return None
+    elif first <= 0 or last <= 0:
+        return None
+    ratio = last / first
+    if ratio <= 0:
+        return None
+    return ratio ** (1 / periods) - 1
+
+
+def pe_check_pass(pe, pe_max):
+    """Value screen: positive earnings multiple under the cap (negative P/E fails)."""
+    pe = safe_float(pe)
+    pe_max = safe_float(pe_max)
+    if pe is None or pe_max is None:
+        return None
+    return pe > 0 and pe < pe_max
+
+
+def earnings_usable_for_valuation(eps, net_income=None):
+    """EPS-based DCF / computed P/E only when earnings are actually positive."""
+    eps = safe_float(eps)
+    if eps is None or eps <= 0:
+        return False
+    if net_income is not None:
+        ni = safe_float(net_income)
+        if ni is not None and ni <= 0:
+            return False
+    return True
+
+
+def sanitize_pe_display(pe):
+    """Hide non-earning / absurd multiples from ratio tables."""
+    pe = safe_float(pe)
+    if pe is None or pe <= 0 or abs(pe) > 1000:
+        return None
+    return pe
+
+
+def sanitize_roe_display(roe, net_income=None):
+    """Hide loss-period or ~0% ROE that round to noise."""
+    roe = safe_float(roe)
+    if roe is None:
+        return None
+    ni = safe_float(net_income)
+    if ni is not None and ni <= 0:
+        return None
+    if abs(roe) < 0.0005:  # < 0.05 ppt → prints as 0.0%
+        return None
+    return roe
+
+
+def compute_growth(metric_key, years, company_data):
+    """
+    YoY and CAGR for a metric across fiscal years.
+    company_data: {"years": {year: {metric_key: value, ...}}}
+    """
+    values = []
+    for y in years:
+        if y in company_data["years"] and metric_key in company_data["years"][y]:
+            raw = company_data["years"][y][metric_key]
+            val = metric_value(raw, metric_key)
+            if val is None and metric_key not in ZERO_AS_MISSING_KEYS:
+                val = safe_float(raw)
+            if val is not None:
+                values.append((y, val))
+    if len(values) < 2:
+        return {"yoy": {}, "cagr": None}
+
+    yoy = {}
+    for i in range(len(values) - 1):
+        rate = growth_rate(values[i][1], values[i + 1][1], key=metric_key)
+        if rate is not None:
+            yoy[values[i + 1][0]] = rate
+
+    cagr = cagr_rate(
+        values[0][1],
+        values[-1][1],
+        len(values) - 1,
+        key=metric_key,
+    )
+    return {"yoy": yoy, "cagr": cagr}
 
 
 def _liquidity_ratio_pass(current_ratio, quick_ratio):
@@ -64,7 +211,10 @@ def _sorted_financials(financials):
 
 def _has_core_metrics(row):
     for key in ("book_value", "net_income", "total_assets", "revenue", "eps"):
-        if safe_float(row.get(key)) is not None:
+        if key in ZERO_AS_MISSING_KEYS:
+            if metric_value(row.get(key), key) is not None:
+                return True
+        elif safe_float(row.get(key)) is not None:
             return True
     return False
 
@@ -129,7 +279,7 @@ def ratio_pass_from_columns(pe_ratio, pb_ratio, roe, thresholds=None):
     pe = sanitize_ratio(pe_ratio)
     pb = sanitize_ratio(pb_ratio)
     roe_v = safe_float(roe)
-    pe_pass = pe < t["pe_max"] if pe is not None else None
+    pe_pass = pe_check_pass(pe, t["pe_max"])
     pb_pass = pb < t["pb_max"] if pb is not None else None
     roe_pass = roe_v > t["roe_min"] if roe_v is not None else None
     return pe_pass, pb_pass, roe_pass
@@ -188,7 +338,7 @@ def build_checklist(company, financials, thresholds=None):
     shares = safe_float(company.get("outstanding_shares"))
     if shares is None and latest is not None:
         shares = safe_float(latest.get("outstanding_shares"))
-    eps = safe_float(latest.get("eps")) if latest else None
+    eps = metric_value(latest.get("eps"), "eps") if latest else None
     book_value = safe_float(latest.get("book_value")) if latest else None
     net_income = safe_float(latest.get("net_income")) if latest else None
     equity = book_value * shares if book_value is not None and shares is not None else None
@@ -196,7 +346,11 @@ def build_checklist(company, financials, thresholds=None):
     pe_scraped = safe_float(company.get("pe_ratio"))
     pb_scraped = safe_float(company.get("pb_ratio"))
     roe_scraped = safe_float(company.get("roe"))
-    pe_computed = price / eps if price is not None and eps else None
+    pe_computed = (
+        price / eps
+        if price is not None and earnings_usable_for_valuation(eps, net_income)
+        else None
+    )
     pb_computed = price / book_value if price is not None and book_value else None
     pe = pe_scraped if pe_scraped is not None and abs(pe_scraped) <= 1000 else None
     if pe is None:
@@ -223,7 +377,7 @@ def build_checklist(company, financials, thresholds=None):
     return [
         {
             "label": f"P/E Ratio < {pe_max:g}",
-            "pass": pe < pe_max if pe is not None else None,
+            "pass": pe_check_pass(pe, pe_max),
         },
         {
             "label": f"P/B < {pb_max:g}",
@@ -257,7 +411,10 @@ def is_info_incomplete(company, financials):
     latest = fin[-1]
     required = ("revenue", "net_income", "total_assets", "eps", "book_value")
     for key in required:
-        if safe_float(latest.get(key)) is None:
+        if key in ZERO_AS_MISSING_KEYS:
+            if metric_value(latest.get(key), key) is None:
+                return True
+        elif safe_float(latest.get(key)) is None:
             return True
     return False
 

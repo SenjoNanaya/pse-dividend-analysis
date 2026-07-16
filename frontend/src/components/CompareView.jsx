@@ -124,6 +124,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
   const peBest = bestIndex(reports.map((r) => r.ratios.pe), 'min');
   const pbBest = bestIndex(reports.map((r) => r.ratios.pb), 'min');
   const roeBest = bestIndex(reports.map((r) => r.ratios.roe), 'max');
+  const roicBest = bestIndex(reports.map((r) => r.ratios.roic), 'max');
   const yieldBest = bestIndex(reports.map((r) => r.divYield), 'max');
   const checksBest = bestIndex(
     reports.map((r) => r.checklistScore?.pass ?? null),
@@ -132,6 +133,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
   const bvCagrBest = bestIndex(reports.map((r) => r.growth.bookValue), 'max');
   const niCagrBest = bestIndex(reports.map((r) => r.growth.income), 'max');
   const asCagrBest = bestIndex(reports.map((r) => r.growth.assets), 'max');
+  const liabCagrBest = bestIndex(reports.map((r) => r.growth.liabilities), 'min');
 
   const checkLabels = reports[0]?.checklist?.map((c) => c.label) || [];
   const showMetrics = panel === 'metrics' || panel === 'both';
@@ -294,6 +296,14 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                     ))}
                   </tr>
                   <tr>
+                    <th scope="row">ROIC</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === roicBest}>
+                        {formatPct(r.ratios.roic)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
                     <th scope="row">Checks</th>
                     {reports.map((r, i) => {
                       const score = r.checklistScore;
@@ -328,6 +338,14 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                     {reports.map((r, i) => (
                       <CompareCell key={r.companyId} best={i === asCagrBest}>
                         {formatPct(r.growth.assets)}
+                      </CompareCell>
+                    ))}
+                  </tr>
+                  <tr>
+                    <th scope="row">Liab. CAGR</th>
+                    {reports.map((r, i) => (
+                      <CompareCell key={r.companyId} best={i === liabCagrBest}>
+                        {formatPct(r.growth.liabilities)}
                       </CompareCell>
                     ))}
                   </tr>
@@ -369,7 +387,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
               </table>
             </div>
             <p className="compare-note">
-              Orange highlight = best among the set (lowest P/E &amp; P/B; highest yield, ROE, checks, CAGRs).
+              Orange highlight = best among the set (lowest P/E, P/B &amp; liabilities CAGR; highest yield, ROE, ROIC, checks, other CAGRs).
               Click a ticker to open its full record.
             </p>
           </div>

@@ -3,33 +3,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from src.utils import safe_float, format_safe
 from src.parser import sanitize_per_share_price
+from src.report_metrics import (
+    compute_growth,
+    earnings_usable_for_valuation,
+    metric_value,
+    pe_check_pass,
+    sanitize_pe_display,
+    sanitize_roe_display,
+)
 import os
 
-def compute_growth(metric_key, years, company_data):
-    values = []
-    for y in years:
-        if y in company_data["years"] and metric_key in company_data["years"][y]:
-            values.append((y, company_data["years"][y][metric_key]))
-    if len(values) < 2:
-        return {"yoy": {}, "cagr": None}
-    
-    yoy = {}
-    for i in range(len(values)-1):
-        prev = values[i][1]
-        curr = values[i+1][1]
-        if prev and curr and prev != 0:
-            yoy[values[i+1][0]] = (curr - prev) / prev
-    
-    cagr = None
-    if len(values) >= 2:
-        first = values[0][1]
-        last = values[-1][1]
-        # CAGR is only meaningful for sustained positive values
-        if first and last is not None and first > 0 and last > 0:
-            ratio = last / first
-            if ratio > 0:
-                cagr = ratio ** (1 / (len(values) - 1)) - 1
-    return {"yoy": yoy, "cagr": cagr}
 
 def generate_report(company_data):
     os.makedirs("reports", exist_ok=True)
@@ -53,7 +36,7 @@ def generate_report(company_data):
 
     latest_data = company_data["years"][latest]
     
-    eps = safe_float(latest_data.get("eps"))
+    eps = metric_value(latest_data.get("eps"), "eps")
     book_value = safe_float(latest_data.get("book_value_per_share"))
     net_income = safe_float(latest_data.get("net_income"))
     equity = safe_float(latest_data.get("stockholders_equity"))
@@ -75,7 +58,7 @@ def generate_report(company_data):
         pe = None
     if pb is not None and abs(pb) > 1000:
         pb = None
-    if pe is None and eps and stock["last_traded_price"]:
+    if pe is None and earnings_usable_for_valuation(eps, net_income) and stock["last_traded_price"]:
         pe = stock["last_traded_price"] / eps
     if pb is None and book_value and stock["last_traded_price"]:
         pb = stock["last_traded_price"] / book_value
@@ -84,12 +67,21 @@ def generate_report(company_data):
         roe = net_income / equity
     
     total_div_per_share = sum([d["rate"] for d in dividends if d["ex_date"].startswith(str(latest)[:4])])
-    div_yield = total_div_per_share / stock["last_traded_price"] if stock["last_traded_price"] else None
+    div_yield = (
+        total_div_per_share / stock["last_traded_price"]
+        if stock["last_traded_price"] and total_div_per_share
+        else None
+    )
     total_div_paid = total_div_per_share * stock["outstanding_shares"] if stock["outstanding_shares"] else 0
     div_cover = latest_data["net_income"] / total_div_paid if total_div_paid else None
 
+    pe_raw = pe
+    roe_raw = roe
+    pe_show = sanitize_pe_display(pe_raw)
+    roe_show = sanitize_roe_display(roe_raw, net_income)
+
     check = {
-        "pe_under_22": pe is not None and pe < 22,
+        "pe_under_22": pe_check_pass(pe_raw, 22) is True,
         "pb_under_1": pb is not None and pb < 1,
         "bv_increasing": len(years) >= 2 and company_data["years"][years[-1]].get("book_value_per_share", 0) > company_data["years"][years[-2]].get("book_value_per_share", 0),
         "income_increasing": len(years) >= 2 and company_data["years"][years[-1]].get("net_income", 0) > company_data["years"][years[-2]].get("net_income", 0),
@@ -105,16 +97,27 @@ def generate_report(company_data):
             and company_data["years"][years[-1]].get("outstanding_shares") is not None
             and company_data["years"][years[-2]].get("outstanding_shares") is not None
         ) else None,
-        "roe_above_10": roe is not None and roe > 0.10
+        "roe_above_10": roe_raw is not None and roe_raw > 0.10
     }
 
-    zero_growth_fv = eps / 0.10 if eps else None
+    zero_growth_fv = (
+        eps / 0.10
+        if earnings_usable_for_valuation(eps, net_income)
+        else None
+    )
+
+    has_operating_revenue = any(
+        metric_value(company_data["years"][y].get("gross_revenue"), "gross_revenue") is not None
+        for y in years
+    )
 
     # --- Print Report ---
     print("="*80)
     print(f"{stock['company_name']} ({stock['ticker']})")
     print(f"Last Price: {format_safe(stock['last_traded_price'], '.2f')} PHP")
     print(f"Market Cap: {format_safe(stock['market_cap'], ',.0f')} PHP")
+    if not has_operating_revenue:
+        print("Note: No operating revenue in filings — P&L growth / earnings multiples N/A.")
     print("="*80)
     
     # Growth Overview table
@@ -156,9 +159,9 @@ def generate_report(company_data):
     print("\nRATIOS")
     print("-"*80)
     ratios = {
-        "P/E Ratio": f"{pe:.2f}" if pe is not None else "N/A",
+        "P/E Ratio": f"{pe_show:.2f}" if pe_show is not None else "N/A",
         "P/B Ratio": f"{pb:.2f}" if pb is not None else "N/A",
-        "ROE": f"{roe*100:.1f}%" if roe is not None else "N/A",
+        "ROE": f"{roe_show*100:.1f}%" if roe_show is not None else "N/A",
         "Dividend Yield": f"{div_yield*100:.2f}%" if div_yield is not None else "N/A",
         "Dividend Cover": f"{div_cover:.2f}" if div_cover is not None else "N/A"
     }
@@ -207,7 +210,8 @@ def generate_report(company_data):
     metrics_to_plot = [
         ('gross_revenue', 'Revenue'),
         ('net_income', 'Net Income'),
-        ('total_assets', 'Total Assets')
+        ('total_assets', 'Total Assets'),
+        ('total_liabilities', 'Total Liabilities'),
     ]
 
     # Get available years
@@ -216,8 +220,8 @@ def generate_report(company_data):
     if len(years) < 2:
         print(f"Not enough years ({len(years)}) to generate dashboard for {stock['ticker']}.")
     else:
-        # Create a figure with 3 subplots (3 rows, 1 column)
-        fig, axes = plt.subplots(3, 1, figsize=(12, 15))
+        # Create a figure with 4 subplots
+        fig, axes = plt.subplots(4, 1, figsize=(12, 18))
         fig.suptitle(f'{stock["ticker"]} - Financial Performance Dashboard', 
                      fontsize=16, fontweight='bold', y=0.98)
         

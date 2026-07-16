@@ -61,7 +61,10 @@ class FinancialSerializer(serializers.ModelSerializer):
         model = Financial
         fields = [
             'fiscal_year', 'revenue', 'net_income', 'eps',
-            'book_value', 'total_assets', 'total_liabilities',
+            'book_value', 'total_assets', 'total_liabilities', 'stockholders_equity',
+            'total_current_liabilities',
+            'cash_and_equivalents', 'operating_income', 'income_before_tax',
+            'income_tax_expense', 'gross_profit', 'ga_expense', 'statement_scope',
             'current_ratio', 'quick_ratio', 'outstanding_shares',
         ]
 

@@ -56,6 +56,15 @@ def init_db():
             book_value REAL,
             total_assets REAL,
             total_liabilities REAL,
+            stockholders_equity REAL,
+            total_current_liabilities REAL,
+            cash_and_equivalents REAL,
+            operating_income REAL,
+            income_before_tax REAL,
+            income_tax_expense REAL,
+            gross_profit REAL,
+            ga_expense REAL,
+            statement_scope TEXT,
             current_ratio REAL,
             quick_ratio REAL,
             outstanding_shares REAL,
@@ -133,6 +142,15 @@ def _ensure_financial_columns(cursor):
         ("current_ratio", "REAL"),
         ("quick_ratio", "REAL"),
         ("outstanding_shares", "REAL"),
+        ("stockholders_equity", "REAL"),
+        ("total_current_liabilities", "REAL"),
+        ("cash_and_equivalents", "REAL"),
+        ("operating_income", "REAL"),
+        ("income_before_tax", "REAL"),
+        ("income_tax_expense", "REAL"),
+        ("gross_profit", "REAL"),
+        ("ga_expense", "REAL"),
+        ("statement_scope", "TEXT"),
     ):
         if col not in existing:
             cursor.execute(f"ALTER TABLE financials ADD COLUMN {col} {decl}")
@@ -241,10 +259,35 @@ def update_company_screening(
     ))
     conn.commit()
 
+_FINANCIAL_COLUMNS = (
+    "revenue",
+    "net_income",
+    "eps",
+    "book_value",
+    "total_assets",
+    "total_liabilities",
+    "stockholders_equity",
+    "total_current_liabilities",
+    "cash_and_equivalents",
+    "operating_income",
+    "income_before_tax",
+    "income_tax_expense",
+    "gross_profit",
+    "ga_expense",
+    "statement_scope",
+    "current_ratio",
+    "quick_ratio",
+    "outstanding_shares",
+)
+
+
 def insert_financials(conn, company_id, fiscal_year, data):
     """
     Insert or replace financial data for a company/year.
     data: revenue, net_income, eps, book_value, total_assets, total_liabilities,
+          stockholders_equity, total_current_liabilities,
+          cash_and_equivalents, operating_income, income_before_tax,
+          income_tax_expense, gross_profit, ga_expense, statement_scope,
           current_ratio, quick_ratio, outstanding_shares
     """
     cursor = conn.cursor()
@@ -252,9 +295,12 @@ def insert_financials(conn, company_id, fiscal_year, data):
     cursor.execute("""
         INSERT OR REPLACE INTO financials (
             company_id, fiscal_year, revenue, net_income, eps, 
-            book_value, total_assets, total_liabilities,
+            book_value, total_assets, total_liabilities, stockholders_equity,
+            total_current_liabilities,
+            cash_and_equivalents, operating_income, income_before_tax,
+            income_tax_expense, gross_profit, ga_expense, statement_scope,
             current_ratio, quick_ratio, outstanding_shares
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         company_id,
         fiscal_year,
@@ -264,11 +310,63 @@ def insert_financials(conn, company_id, fiscal_year, data):
         data.get('book_value'),
         data.get('total_assets'),
         data.get('total_liabilities'),
+        data.get('stockholders_equity'),
+        data.get('total_current_liabilities'),
+        data.get('cash_and_equivalents'),
+        data.get('operating_income'),
+        data.get('income_before_tax'),
+        data.get('income_tax_expense'),
+        data.get('gross_profit'),
+        data.get('ga_expense'),
+        data.get('statement_scope'),
         data.get('current_ratio'),
         data.get('quick_ratio'),
         data.get('outstanding_shares'),
     ))
     conn.commit()
+
+
+def fill_financial_nulls(conn, company_id, fiscal_year, data, *, commit=True):
+    """
+    Update only columns that are currently NULL for company_id/fiscal_year.
+    Returns list of column names that were filled.
+    """
+    cursor = conn.cursor()
+    row = cursor.execute(
+        """
+        SELECT * FROM financials
+        WHERE company_id = ? AND fiscal_year = ?
+        """,
+        (company_id, fiscal_year),
+    ).fetchone()
+    if not row:
+        return []
+    existing = dict(row)
+    sets = []
+    vals = []
+    filled = []
+    for col in _FINANCIAL_COLUMNS:
+        if col not in data or data[col] is None:
+            continue
+        if existing.get(col) is not None:
+            continue
+        sets.append(f"{col} = ?")
+        vals.append(data[col])
+        filled.append(col)
+    if not sets:
+        return []
+    vals.extend([company_id, fiscal_year])
+    cursor.execute(
+        f"""
+        UPDATE financials
+        SET {", ".join(sets)}
+        WHERE company_id = ? AND fiscal_year = ?
+        """,
+        vals,
+    )
+    if commit:
+        conn.commit()
+    return filled
 
 def insert_dividend(conn, company_id, dividend_data):
     """

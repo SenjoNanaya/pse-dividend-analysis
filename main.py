@@ -6,6 +6,16 @@ from src import db
 from src.db import get_connection, init_db
 from src import parser
 from src.report_metrics import compute_screening_summary, map_shares_to_fiscal_years
+from src.filing_triage import select_attachments_to_download
+from src.pdf_roic_extract import (
+    extract_roic_metrics_from_pdf_bytes,
+    fill_html_whitelist,
+    prefer_scope_metrics,
+    plausible_fiscal_years,
+)
+from src.scale_guard import repair_thousand_scale_jumps
+import os
+
 
 def run_pipeline():
     # 1. Initialize database
@@ -57,6 +67,7 @@ def run_pipeline():
             yearly_metrics = {}
             filing_prices = []
             disclosure_ratios = {}
+            pdf_metric_candidates = []  # (scope, yearly_dict)
             disc_search_html = scraper.fetch_disclosures_search(cmpy_id, "Annual Report")
             edge_numbers = parser.parse_disclosure_edge_numbers(disc_search_html)
             
@@ -80,7 +91,43 @@ def run_pipeline():
 
                     for year, ratios in (disc_data.get('financial_ratios') or {}).items():
                         disclosure_ratios.setdefault(year, {}).update(ratios)
-            
+
+                # PDF attachments (ROIC whitelist); OCR runs automatically on sparse/image-only AFS
+                attachments = parser.parse_disclosure_attachments(viewer_html)
+                to_fetch = select_attachments_to_download(attachments, max_files=6)
+                for att in to_fetch:
+                    try:
+                        referer = f"https://edge.pse.com.ph/openDiscViewer.do?edge_no={edge_no}"
+                        pdf_bytes = scraper.fetch_attachment_file(att["file_id"], referer=referer)
+                        cache_dir = os.path.join("data", "filings", str(cmpy_id), str(edge_no))
+                        safe_name = "".join(
+                            c if c.isalnum() or c in "._-" else "_"
+                            for c in (att.get("filename") or f"{att['file_id']}.pdf")
+                        )[:180]
+                        cache_path = os.path.join(cache_dir, safe_name)
+                        pdf_yearly = extract_roic_metrics_from_pdf_bytes(
+                            pdf_bytes,
+                            filename_hint=att.get("filename"),
+                            cache_path=cache_path,
+                        )
+                        if pdf_yearly:
+                            # Infer scope from first year meta
+                            sample = next(iter(pdf_yearly.values()))
+                            scope = sample.get("statement_scope") or "unknown"
+                            pdf_metric_candidates.append((scope, pdf_yearly))
+                        random_delay()
+                    except Exception as pdf_err:
+                        logger.warning(
+                            "PDF attachment extract failed for %s file_id=%s: %s",
+                            cmpy_id,
+                            att.get("file_id"),
+                            pdf_err,
+                        )
+
+            if pdf_metric_candidates:
+                pdf_merged = prefer_scope_metrics(pdf_metric_candidates)
+                yearly_metrics = fill_html_whitelist(yearly_metrics, pdf_merged)
+
             # Shares (Form 17-C)
             historical_shares = {}
             share_search_html = scraper.fetch_disclosures_search(cmpy_id, "Shares")
@@ -99,16 +146,34 @@ def run_pipeline():
                         if year and shares:
                             historical_shares[year] = shares
             
-            # Merge Form 17-C shares onto statement fiscal years (no empty shells)
-            fiscal_years = list(yearly_metrics.keys())
+            # Merge Form 17-C shares onto real statement fiscal years only
+            fiscal_years = plausible_fiscal_years(list(yearly_metrics.keys()))
+            # Drop accidental PDF/HTML junk year keys before persistence
+            for y in list(yearly_metrics.keys()):
+                if y not in fiscal_years:
+                    logger.warning(
+                        "Dropping non-plausible fiscal year %s for %s", y, cmpy_id
+                    )
+                    yearly_metrics.pop(y, None)
+
             share_by_year = map_shares_to_fiscal_years(
                 historical_shares,
                 fiscal_years,
                 stock_shares=stock_info.get('outstanding_shares'),
             )
             for year, shares in share_by_year.items():
-                yearly_metrics[year]['outstanding_shares'] = shares
-            
+                if year in yearly_metrics:
+                    yearly_metrics[year]['outstanding_shares'] = shares
+
+            # Insert-time guard: repair ~1000× cross-year HTML scale misses
+            # (after shares merge so equity ≈ BV×shares can anchor the fix)
+            yearly_metrics, scale_actions = repair_thousand_scale_jumps(
+                yearly_metrics,
+                shares_fallback=stock_info.get("outstanding_shares"),
+            )
+            for note in scale_actions:
+                logger.warning("Scale guard %s: %s", cmpy_id, note)
+
             # Fill blank stock-page P/E, P/B, price, ROE from disclosures
             stock_info = parser.resolve_valuation_fallbacks(
                 stock_info,
@@ -116,7 +181,7 @@ def run_pipeline():
                 filing_prices=filing_prices,
                 disclosure_ratios=disclosure_ratios,
             )
-            
+
             # 4. Build company_data (same as before)
             company_data = {
                 "stock_data": stock_info,
@@ -164,6 +229,15 @@ def run_pipeline():
                     'book_value': metrics.get('book_value_per_share'),
                     'total_assets': metrics.get('total_assets'),
                     'total_liabilities': metrics.get('total_liabilities'),
+                    'stockholders_equity': metrics.get('stockholders_equity'),
+                    'total_current_liabilities': metrics.get('total_current_liabilities'),
+                    'cash_and_equivalents': metrics.get('cash_and_equivalents'),
+                    'operating_income': metrics.get('operating_income'),
+                    'income_before_tax': metrics.get('income_before_tax'),
+                    'income_tax_expense': metrics.get('income_tax_expense'),
+                    'gross_profit': metrics.get('gross_profit'),
+                    'ga_expense': metrics.get('ga_expense'),
+                    'statement_scope': metrics.get('statement_scope'),
                     'current_ratio': year_ratios.get('current_ratio'),
                     'quick_ratio': year_ratios.get('quick_ratio'),
                     'outstanding_shares': metrics.get('outstanding_shares'),
@@ -172,10 +246,21 @@ def run_pipeline():
                     financial_data.get(k) is not None
                     for k in (
                         'revenue', 'net_income', 'eps', 'book_value',
-                        'total_assets', 'total_liabilities',
+                        'total_assets', 'total_liabilities', 'stockholders_equity',
                     )
                 )
                 if not has_core:
+                    continue
+                if not plausible_fiscal_years([year]):
+                    continue
+                # Guard against note/year misfires stored as "assets"
+                assets = financial_data.get('total_assets')
+                if (
+                    assets is not None
+                    and abs(float(assets)) < 1_000
+                    and financial_data.get('net_income') is None
+                    and financial_data.get('book_value') is None
+                ):
                     continue
                 db.insert_financials(conn, company_id, year, financial_data)
                 financial_rows.append({'fiscal_year': year, **financial_data})

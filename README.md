@@ -9,6 +9,47 @@ A modular pipeline that scrapes, parses, and stores financial data from the Phil
 
 ---
 
+## Portfolio brief
+
+**One-liner:** Full-stack research tool that turns PSE EDGE disclosures into a screenable fundamentals database—scrape → parse → SQLite → Django REST → React dashboard.
+
+### Problem
+
+Philippine listed-company fundamentals for value-style screening are awkward to use: EDGE is a legacy portal (HTML disclosures, XHR endpoints), global APIs often fail on PSE tickers, and raw filings need scale-aware parsing before ratios or yields mean anything. I wanted a personal research loop: pull data carefully, store it once, then explore companies with filters, checklists, and compares—not a brokerage product.
+
+### What I built
+
+| Layer | Choices | Why it matters |
+|-------|---------|----------------|
+| **ETL** | Python `requests` + BeautifulSoup → SQLite | Owns the hard part: navigation, table cleanup, units, cash vs property dividends |
+| **API** | Django REST on the same DB (unmanaged models) | Thin, queryable surface for list/detail/facets/news without re-scraping |
+| **UI** | React (Vite) registry + report + compare | Interactive screening: thresholds, live CHECKS, side preview, multi-ticker matrix |
+| **News** | Server-proxied Google News RSS | Lightweight context next to fundamentals; soft-fails if unavailable |
+
+### Design decisions I’d defend in review
+
+1. **EDGE as source of truth for PH dividends** — Yahoo-style endpoints were unreliable for tickers like `LTG.PS`; TTM yield is cash DPS over the last 12 months ÷ last price.
+2. **Structural vs live screening** — checklist bits that don’t depend on user thresholds stay in the DB; P/E, P/B, ROE (and threshold-sensitive counts) rescore when filters change so the UI doesn’t lie after Apply.
+3. **Polite scraping + educational disclaimer** — rate limits, research-only framing, and explicit non-affiliation with PSE.
+
+### Hardest bugs / correctness work (good interview depth)
+
+- Scale notes in filings (thousands / millions / billions) quietly wreck ratios if ignored.
+- Dividend rows that look numeric but are property or non-cash; yield must exclude them.
+- Showing a fixed “CHECKS” score while the user tightens P/E or yield thresholds—fixed by hybrid live rescoring.
+
+### What I’d ship next (honest roadmap)
+
+- Focused automated tests for parser yield/scale cases and threshold→checklist behavior
+- One-command local demo (e.g. Compose or a scripted sample DB)
+- Stronger resilience when EDGE HTML layout drifts
+
+### Interview talk track
+
+A rehearsable **2–3 minute** pitch plus likely questions: [`docs/INTERVIEW_TALK_TRACK.md`](docs/INTERVIEW_TALK_TRACK.md).
+
+---
+
 ## What This Project Does
 
 | Phase | What It Does |
@@ -47,6 +88,8 @@ The pipeline navigates PSE Edge's complex architecture:
 - **Multi-year financial extraction** — current and prior fiscal years
 - **Historical shares tracking** — SEC Form 17-C for dilution checks
 - **Dividend yield** — strict trailing-12-month common **cash** DPS ÷ last price (persisted as `div_yield`)
+- **Balance sheet** — total assets, total liabilities, current liabilities, cash & equivalents (from EDGE HTML and/or 17-A PDF attachments), stockholders' equity
+- **ROIC** — not blocked by PDF parsing; coverage is sparse. See [ROIC: proper vs proxy](#roic-proper-vs-proxy) below.
 
 ### API & dashboard
 
@@ -55,16 +98,47 @@ The pipeline navigates PSE Edge's complex architecture:
 - **Screening thresholds** — freeform P/E, P/B, ROE %, and yield % inputs Apply to the list and rewrite Screening Preview / report checklist labels; CHECKS / &gt;5 PASS rescore live
 - **Row preview** — checklist + ratios without leaving the directory
 - **Compare matrix** — select up to 4 tickers; metrics table + YoY chart overlays
-- **Fundamental report** — growth charts, ratios, checklist, dividend history, simple fair-value scenarios
+- **Fundamental report** — growth charts, liabilities / balance-sheet history for BV derivation (A−L), ratios, checklist, dividend history, fair-value scenarios, ticker news feed
+- **Ticker news** — server-proxied Google News RSS (PH locale); short tickers get stricter queries + relevance filter; Google redirect URLs unwrapped to publishers when possible; `?all=1` shows less-relevant hits
 - **Accessibility pass** — focus outlines, reduced-motion, labeled controls, keyboard registry rows and compare tabs
 
 ### Analysis metrics
 
 - YoY growth and 3-year CAGR
-- P/E, P/B, ROE, TTM dividend yield, dividend cover
+- P/E, P/B, ROE, ROIC (proper when cash+CL+NOPAT inputs exist; else NI proxy), TTM dividend yield, dividend cover
 - Fundamental checklist (pass / fail / N/A)
 - DCF-style zero-growth fair value scenarios
 - Optional matplotlib bar charts via the CLI pipeline
+
+### ROIC: proper vs proxy
+
+| Mode | Numerator | Invested capital | When used |
+|------|-----------|------------------|-----------|
+| **Proper** | NOPAT = operating income (or GP−GA) × (1−t) | Assets − Cash − Current liabilities | Cash + CL present on ≥1 year |
+| **Proxy** | Net income | Assets − CL (else Assets) | Fallback when proper inputs missing |
+| **N/A** | — | — | Banks / insurance |
+
+**PDF is a fill-nulls helper, not a requirement.** EDGE HTML pulls cash & CL when those line items appear in disclosure tables (expanded synonyms such as “cash on hand and in banks”; year-header junk like `cash=2024` is dropped). Ranked 17-A/AFS PDFs overlay the closed whitelist (`cash`, `CL`, op income / GP / GA, tax, IBT) only onto existing fiscal years and only when HTML left the field null. Page routing requires statement titles plus tabular peso density so PFRS/MD&A prose does not invent fake FS pages.
+
+**Image-only AFS:** when a ranked attachment has almost no text layer, the extractor OCRs up to the first ~40 pages via PyMuPDF + Tesseract tessdata, then reuses the same router/adapters. Soft-skips (no crash) if tessdata is missing — set `TESSDATA_PREFIX` or install Tesseract language data. Integrated / ESG filenames are never OCR’d.
+
+| Goal | Status |
+|------|--------|
+| Proxy ROIC | Available widely from HTML assets / NI / CL |
+| Proper ROIC (HTML cash or text-layer FS PDF) | Works when cash + CL + op/GP−GA land |
+| Proper ROIC on image-only AFS | Works when Tesseract tessdata is available; otherwise soft-skip |
+
+Cash capture uses expanded BS synonyms plus a cash-flow **ending balance** fallback when the BS cash line is missing. Ranked AFS/17-A PDFs can OCR sparse packs and pull ending cash from CF pages as a fill-nulls source.
+
+Cash-null backfill (re-fetch HTML+PDFs or cached PDFs only; never overwrites non-nulls):
+
+```bash
+python scripts/backfill_cash_for_roic.py --dry-run --limit 20
+python scripts/backfill_cash_for_roic.py --limit 50
+python scripts/backfill_cash_for_roic.py --cached-pdfs-only --limit 50
+```
+
+Sanity audit after rescrape: `python scripts/sanity_check_rescrape.py`. ROIC PDF smoke tests: `python scripts/test_roic_pipeline.py`.
 
 ---
 
@@ -75,6 +149,7 @@ Edge/
 ├── api/                        # Django REST app (unmanaged models → SQLite)
 │   ├── filters.py              # sector, cap_tier, thresholds, qualified, …
 │   ├── screening.py            # live CHECKS rescore helpers
+│   ├── news.py                 # Google News RSS proxy for tickers
 │   ├── models.py
 │   ├── serializers.py
 │   ├── views.py
@@ -92,10 +167,16 @@ Edge/
 ├── reports/                    # optional matplotlib output (gitignored)
 ├── scripts/
 │   ├── backfill_div_yield.py       # recompute persisted div_yield
-│   └── backfill_struct_checks.py   # structural checklist bits for live CHECKS
+│   ├── backfill_struct_checks.py   # structural checklist bits for live CHECKS
+│   ├── backfill_stockholders_equity.py  # equity from A − L when missing
+├── fixtures/roic/              # small text fixtures for ROIC PDF smoke tests
 ├── src/
 │   ├── scraper.py
 │   ├── parser.py
+│   ├── filing_triage.py        # attachment rank / skip heuristics
+│   ├── pdf_page_router.py      # Financial Position / Income page finder
+│   ├── pdf_adapters/           # sequential, notes-column, scaled multi-column
+│   ├── pdf_roic_extract.py     # whitelist ROIC fields from PDFs
 │   ├── db.py
 │   ├── report_metrics.py       # screening / TTM yield (Python)
 │   ├── report_generator.py
@@ -209,6 +290,7 @@ API base: `http://127.0.0.1:8000/`
 | `GET /api/companies/?pe_max=10&pb_max=0.5&roe_min=0.2&yield_min=0.04` | Screening thresholds |
 | `GET /api/companies/facets/` | Distinct sectors / subsectors / cap tier / threshold presets |
 | `GET /api/companies/<id>/` | Detail with financials and dividends |
+| `GET /api/companies/<id>/news/` | Recent headlines (Google News RSS proxy, cached ~20 min) |
 
 **Cap tiers** (by market cap, PHP): MICRO &lt; ₱3B · SMALL &lt; ₱20B · MID &lt; ₱100B · LARGE ≥ ₱100B.
 
@@ -227,6 +309,12 @@ Leave a field blank for “All” — checklist still uses classic defaults (P/E
 
 ```bash
 python scripts/backfill_struct_checks.py
+```
+
+ROIC PDF triage / adapter smoke tests (fixtures under `fixtures/roic/`):
+
+```bash
+python scripts/test_roic_pipeline.py
 ```
 
 Example:
@@ -294,6 +382,8 @@ Yahoo Finance and similar global APIs are **not** reliable for PSE tickers; EDGE
 | **Multiple years extraction** | Cleaned/merged tables; deduplicated by fiscal year |
 | **Missing stock-page ratios** | Filled P/E, P/B, price, ROE from filings when the quote page is thin |
 | **Dividend mis-parses** | Prefer `Php…` amounts; classify property vs cash; TTM yield ignores non-cash |
+| **Liabilities vs A=L+E total** | Exclude “liabilities and equity” captions; reconcile missing A/L/E; backfill equity from A−L |
+| **17-A PDF layouts** | Triage attachments; substance-gated page router; thin adapters into a closed ROIC whitelist; **fill-nulls only** onto HTML years; **OCR** (Tesseract tessdata) only for sparse/image-only ranked AFS packs |
 | **Rate limiting** | Random delays (`1.5–5.5s`) |
 
 ---

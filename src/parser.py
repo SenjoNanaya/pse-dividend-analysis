@@ -4,7 +4,20 @@ from bs4 import BeautifulSoup
 import pandas as pd
 from src.utils import parse_scale_factor, safe_float
 
-ABSOLUTE_METRICS = ['total_assets', 'total_liabilities', 'stockholders_equity', 'gross_revenue', 'net_income']
+ABSOLUTE_METRICS = [
+    'total_assets',
+    'total_liabilities',
+    'total_current_liabilities',
+    'stockholders_equity',
+    'gross_revenue',
+    'net_income',
+    'cash_and_equivalents',
+    'operating_income',
+    'income_before_tax',
+    'income_tax_expense',
+    'gross_profit',
+    'ga_expense',
+]
 
 # Profitability ratios on Form 17-A are usually reported as percentages (e.g. 14.54 = 14.54%).
 PERCENT_RATIO_KEYS = {'roe', 'roa', 'net_profit_margin', 'gross_profit_margin'}
@@ -439,6 +452,28 @@ def parse_iframe_source(html_text):
     iframes = soup.find_all('iframe')
     return iframes[0]['src'] if iframes else None
 
+
+def parse_disclosure_attachments(html_text):
+    """
+    Parse EDGE openDiscViewer attachment list (#file_list).
+    Returns [{file_id, filename}, ...] excluding the empty 'Select' option.
+    """
+    soup = _make_soup(html_text)
+    select = soup.find("select", id="file_list") or soup.find("select", attrs={"name": "file_list"})
+    if not select:
+        return []
+    attachments = []
+    for opt in select.find_all("option"):
+        file_id = (opt.get("value") or "").strip()
+        if not file_id:
+            continue
+        filename = " ".join(opt.get_text(" ", strip=True).split())
+        if not filename or filename.lower() == "select":
+            continue
+        attachments.append({"file_id": file_id, "filename": filename})
+    return attachments
+
+
 def clean_table(df):
     if df.shape[1] < 2:
         return pd.DataFrame()
@@ -499,6 +534,144 @@ def clean_table(df):
         df_clean[col] = pd.to_numeric(converted, errors='coerce')
     return df_clean
 
+def _label_matches_metric(label, pat, metric):
+    """Substring match with guards so balance-sheet totals are not mis-tagged."""
+    text = str(label).lower()
+    if pat.lower() not in text:
+        return False
+    if metric == 'total_liabilities':
+        # "Total Liabilities and Stockholders' Equity" == Assets, not L
+        if 'equity' in text or 'stockholder' in text:
+            return False
+        # Prefer the dedicated current-liabilities row for that metric
+        if 'current' in text:
+            return False
+    if metric == 'total_current_liabilities':
+        if 'equity' in text or 'stockholder' in text:
+            return False
+        if 'noncurrent' in text or 'non-current' in text or 'non current' in text:
+            return False
+        # Require "current" so bare "liabilities" does not match
+        if 'current' not in text:
+            return False
+    if metric == 'cash_and_equivalents':
+        # CF ending-cash rows are allowed via dedicated patterns; activity lines are not
+        if _label_is_cf_ending_cash(text):
+            return True
+        if any(
+            x in text
+            for x in (
+                "beginning",
+                "start of",
+                "at start",
+                "from operating",
+                "from investing",
+                "from financing",
+            )
+        ):
+            return False
+        if 'flow' in text or 'flows' in text:
+            return False
+        if 'dividend' in text or 'generated' in text or 'used in' in text:
+            return False
+        # Bare "cash" / short labels only — avoid long P&L / notes prose
+        if pat.lower() == 'cash':
+            if len(text.strip()) > 40:
+                return False
+    if metric == 'operating_income':
+        if 'working capital' in text or 'operating activities' in text:
+            return False
+    if metric == 'stockholders_equity':
+        if 'liabilit' in text:
+            return False
+    if metric == 'total_assets':
+        if 'liabilit' in text and 'equity' in text:
+            return False
+    return True
+
+
+def _looks_like_year_amount(value) -> bool:
+    """True when a balance column was filled with a fiscal-year header (e.g. 2024)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return False
+    return 1990 <= abs(v) <= 2100 and abs(v - round(v)) < 1e-9
+
+
+def _label_is_cf_ending_cash(label) -> bool:
+    """True for cash-flow 'cash at end of year/period' rows (not activity lines)."""
+    text = str(label).lower()
+    if not text.strip():
+        return False
+    if any(
+        x in text
+        for x in (
+            "from operating",
+            "from investing",
+            "from financing",
+            "dividend",
+            "generated",
+            "used in",
+            "beginning",
+            "start of",
+            "at start",
+        )
+    ):
+        return False
+    if "cash" not in text:
+        return False
+    endings = (
+        "at end of year",
+        "at end of the year",
+        "at end of period",
+        "at end of the period",
+        "end of year",
+        "end of period",
+        "ending balance",
+        "ending cash",
+        ", ending",
+        "close of the year",
+        "close of year",
+    )
+    return any(e in text for e in endings)
+
+
+# Balance-sheet cash synonyms (order = preference)
+CASH_BS_PATTERNS = [
+    "cash and cash equivalents",
+    "cash & cash equivalents",
+    "cash and equivalents",
+    "cash and short-term deposits",
+    "cash and short term deposits",
+    "cash and cash in banks",
+    "cash in bank and on hand",
+    "cash in banks and on hand",
+    "cash on hand and in banks",
+    "cash on hand and in bank",
+    "cash in banks",
+    "cash in bank",
+    "cash and cash equivalents unrestricted",
+    "unrestricted cash",
+    "cash on hand",
+    "cash",  # bare / short labels last; guarded in _label_matches_metric
+]
+
+# Cash-flow statement ending balance (fallback when BS cash missing)
+CASH_CF_ENDING_PATTERNS = [
+    "cash and cash equivalents at end of year",
+    "cash and cash equivalents at end of the year",
+    "cash and cash equivalents at end of period",
+    "cash and cash equivalents at end of the period",
+    "cash and cash equivalents, end of year",
+    "cash and cash equivalents, ending",
+    "cash at end of year",
+    "cash at end of the year",
+    "cash at end of period",
+    "ending cash and cash equivalents",
+]
+
+
 def _extract_metric_value(combined, col, pats, scale_factor, metric):
     """
     Pick the first matching row for a metric pattern list.
@@ -507,7 +680,10 @@ def _extract_metric_value(combined, col, pats, scale_factor, metric):
     skip_zero = metric == 'net_income'
     fallback_zero = None
     for pat in pats:
-        matches = [idx for idx in combined.index if pat.lower() in str(idx).lower()]
+        matches = [
+            idx for idx in combined.index
+            if _label_matches_metric(idx, pat, metric)
+        ]
         if not matches:
             continue
         val = combined.loc[matches[0], col]
@@ -519,6 +695,76 @@ def _extract_metric_value(combined, col, pats, scale_factor, metric):
         if fallback_zero is None:
             fallback_zero = val
     return fallback_zero
+
+
+def _reconcile_balance_sheet(metrics):
+    """
+    Fill missing A / L / E via Assets = Liabilities + Equity, and repair
+    common mis-parses when equity is available.
+    """
+    a = metrics.get('total_assets')
+    l = metrics.get('total_liabilities')
+    e = metrics.get('stockholders_equity')
+    cl = metrics.get('total_current_liabilities')
+    cash = metrics.get('cash_and_equivalents')
+
+    # Year header misread as total assets / cash (e.g. 2024.0)
+    if a is not None and _looks_like_year_amount(a):
+        metrics.pop('total_assets', None)
+        a = None
+    if cash is not None and _looks_like_year_amount(cash):
+        metrics.pop('cash_and_equivalents', None)
+        cash = None
+
+    if a is not None and l is not None and e is None:
+        metrics['stockholders_equity'] = a - l
+        e = metrics['stockholders_equity']
+    elif a is not None and e is not None and l is None:
+        metrics['total_liabilities'] = a - e
+        l = metrics['total_liabilities']
+    elif l is not None and e is not None and a is None:
+        metrics['total_assets'] = l + e
+        a = metrics['total_assets']
+
+    if a is not None and l is not None and e is not None and abs(a) > 0:
+        le = l + e
+        # Scale misparse: A is 1e3/1e6 too small vs L+E (DELM-style), even if E < 0
+        if abs(le) > 0:
+            for factor in (1_000.0, 1_000_000.0):
+                if abs(a * factor - le) / abs(le) < 0.02:
+                    metrics['total_assets'] = le
+                    a = le
+                    break
+        # Parsed "liabilities" row was actually A≈L (balance-sheet total)
+        if abs(l - a) / abs(a) < 0.02 and abs(le - a) / abs(a) > 0.05:
+            metrics['total_liabilities'] = a - e
+            l = metrics['total_liabilities']
+            le = l + e
+        else:
+            # When A is the outlier vs coherent L+E, trust L+E (do not destroy L)
+            denom = max(abs(a), abs(le))
+            if (
+                denom > 0
+                and abs(a - le) / denom > 0.15
+                and l > 0
+                and e > 0
+                and l < le
+            ):
+                metrics['total_assets'] = le
+                a = le
+
+    # Cash cannot exceed total assets when both present
+    cash = metrics.get('cash_and_equivalents')
+    a = metrics.get('total_assets')
+    if cash is not None and a is not None and abs(a) > 0 and cash > abs(a) * 1.05:
+        metrics.pop('cash_and_equivalents', None)
+
+    # Current liabilities cannot exceed total liabilities
+    if cl is not None and l is not None and cl > l * 1.02:
+        metrics.pop('total_current_liabilities', None)
+
+    return metrics
+
 
 def extract_all_years_metrics(tables_list, scale_factor=1):
     cleaned_tables = []
@@ -538,8 +784,46 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
     
     patterns = {
         'total_assets': ['total assets'],
-        'total_liabilities': ['total liabilities'],
-        'stockholders_equity': ['stockholders equity', "stockholders' equity", 'total equity'],
+        'total_liabilities': [
+            'total liabilities',
+            'total liability',
+        ],
+        'total_current_liabilities': [
+            'total current liabilities',
+            'total current liability',
+            'current liabilities',
+        ],
+        'stockholders_equity': [
+            "total stockholders' equity",
+            'total stockholders equity',
+            "stockholders' equity",
+            'stockholders equity',
+            "total shareholders' equity",
+            'total shareholders equity',
+            'total equity',
+        ],
+        'cash_and_equivalents': list(CASH_BS_PATTERNS),
+        'operating_income': [
+            'operating income',
+            'operating profit',
+            'income from operations',
+        ],
+        'gross_profit': ['gross profit'],
+        'ga_expense': [
+            'general and administrative expenses',
+            'general and administrative expense',
+            'general and administrative',
+        ],
+        'income_before_tax': [
+            'income/(loss) before tax',
+            'income before income tax',
+            'income before tax',
+        ],
+        'income_tax_expense': [
+            'provision for income tax',
+            'income tax expense',
+            'provision for tax',
+        ],
         'book_value_per_share': ['book value per share'],
         'gross_revenue': ['gross revenue'],
         'net_income': [
@@ -565,7 +849,14 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
             val = _extract_metric_value(combined, col, pats, scale_factor, metric)
             if val is not None:
                 metrics[metric] = val
-        yearly_results[year] = metrics
+        # CF ending-cash fallback when balance-sheet cash line is absent
+        if metrics.get("cash_and_equivalents") is None:
+            cf_cash = _extract_metric_value(
+                combined, col, CASH_CF_ENDING_PATTERNS, scale_factor, "cash_and_equivalents"
+            )
+            if cf_cash is not None:
+                metrics["cash_and_equivalents"] = cf_cash
+        yearly_results[year] = _reconcile_balance_sheet(metrics)
     return yearly_results
 
 def parse_report_html(html_text):

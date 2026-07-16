@@ -4,6 +4,7 @@ import CompareView from './components/CompareView';
 import NierSelect from './components/NierSelect';
 import NierShell from './components/NierShell';
 import RegistryPreview from './components/RegistryPreview';
+import TickerNews from './components/TickerNews';
 import {
   formatMarketCap,
   formatPct,
@@ -665,17 +666,8 @@ export default function App() {
           )}
         </div>
 
-        <div className="nier-preview-slot">
-          <RegistryPreview
-            company={previewCompany}
-            status={previewStatus}
-            onOpen={openCompany}
-            onClear={clearPreview}
-            thresholds={appliedThresholds}
-          />
-        </div>
-
-        <div className="nier-table-column">
+        <div className="nier-dashboard-grid">
+          <div className="nier-table-column">
           <p className="nier-row-hint" aria-hidden="true">
             Row keys: Enter / Space = preview · O = open report · double-click = open
           </p>
@@ -833,6 +825,22 @@ export default function App() {
               ADVANCE_PAGE &gt;
             </button>
           </nav>
+        </div>
+
+          <aside className="nier-detail-column">
+            <RegistryPreview
+              company={previewCompany}
+              status={previewStatus}
+              onOpen={openCompany}
+              onClear={clearPreview}
+              thresholds={appliedThresholds}
+            />
+            <TickerNews
+              companyId={previewCompanyId}
+              ticker={previewCompany?.ticker || previewCompany?.symbol}
+              compact
+            />
+          </aside>
         </div>
       </div>
     </NierShell>
