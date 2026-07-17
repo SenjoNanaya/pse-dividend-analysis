@@ -113,6 +113,7 @@ export const COMPARE_CHART_DEFS = [
   { key: 'liabilities', title: 'Total Liabilities — YoY (B PHP)' },
   { key: 'revenue', title: 'Revenue — YoY (B PHP)' },
   { key: 'eps', title: 'EPS — YoY' },
+  { key: 'outstandingShares', title: 'Outstanding Shares — YoY (M)' },
   { key: 'roic', title: 'ROIC / bank capital return — YoY %' },
   { key: 'debtEquity', title: 'Debt / Equity — YoY' },
   { key: 'dividends', title: 'Common Dividends / Share — YoY' },

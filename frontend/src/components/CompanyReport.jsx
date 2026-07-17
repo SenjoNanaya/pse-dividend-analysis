@@ -1,6 +1,7 @@
 import MetricBarChart from './MetricBarChart';
 import BalanceSheetChart from './BalanceSheetChart';
 import ChecklistPreview from './ChecklistPreview';
+import DataQualityPanel from './DataQualityPanel';
 import TickerNews from './TickerNews';
 import { buildReport, formatBillions, formatPct, formatPhp } from '../lib/metrics';
 
@@ -37,6 +38,8 @@ export default function CompanyReport({ company, onBack, thresholds }) {
         </div>
       </div>
 
+      <DataQualityPanel quality={report.dataQuality} />
+
       <h2 className="report-section-label">Growth Overview</h2>
 
       <div className="report-grid-charts">
@@ -70,19 +73,28 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           data={report.charts.eps}
           color="#8a6a5a"
         />
-        <MetricBarChart
-          title={
-            report.roicMeta?.mode === 'proper'
-              ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY %`
-              : report.roicMeta?.mode === 'equity'
-                ? 'Bank capital return (NI ÷ equity) — YoY %'
-                : report.roicMeta?.mode === 'na'
-                  ? 'ROIC — N/A (financials)'
-                  : 'ROIC (proxy) — YoY %'
-          }
-          data={report.charts.roic}
-          color="#6a7a5a"
-        />
+        {report.chartVisibility?.outstandingShares && (
+          <MetricBarChart
+            title="Outstanding Shares — YoY (M)"
+            data={report.charts.outstandingShares}
+            color="#5a6a8a"
+          />
+        )}
+        {report.chartVisibility?.roic && (
+          <MetricBarChart
+            title={
+              report.roicMeta?.mode === 'proper'
+                ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY %`
+                : report.roicMeta?.mode === 'equity'
+                  ? 'Bank capital return (NI ÷ equity) — YoY %'
+                  : report.roicMeta?.mode === 'na'
+                    ? 'ROIC — N/A (financials)'
+                    : 'ROIC (proxy) — YoY %'
+            }
+            data={report.charts.roic}
+            color="#6a7a5a"
+          />
+        )}
         <MetricBarChart
           title="Debt / Equity — YoY"
           data={report.charts.debtEquity}
@@ -268,24 +280,34 @@ export default function CompanyReport({ company, onBack, thresholds }) {
             color="#8a6a5a"
             height={100}
           />
-          <MetricBarChart
-            title={
-              report.roicMeta?.mode === 'equity'
-                ? 'Bank capital return %'
-                : report.roicMeta?.mode === 'proper'
-                  ? 'ROIC %'
-                  : 'ROIC (proxy) %'
-            }
-            data={report.charts.roic.slice(-4)}
-            color="#6a7a5a"
-            height={100}
-          />
+          {report.chartVisibility?.roic && (
+            <MetricBarChart
+              title={
+                report.roicMeta?.mode === 'equity'
+                  ? 'Bank capital return %'
+                  : report.roicMeta?.mode === 'proper'
+                    ? 'ROIC %'
+                    : 'ROIC (proxy) %'
+              }
+              data={report.charts.roic.slice(-4)}
+              color="#6a7a5a"
+              height={100}
+            />
+          )}
           <MetricBarChart
             title="Debt / Equity"
             data={(report.charts.debtEquity || []).slice(-4)}
             color="#8a5a6a"
             height={100}
           />
+          {report.chartVisibility?.outstandingShares && (
+            <MetricBarChart
+              title="Outstanding Shares (M)"
+              data={(report.charts.outstandingShares || []).slice(-4)}
+              color="#5a6a8a"
+              height={100}
+            />
+          )}
         </div>
 
         <div className="report-dividends-block">

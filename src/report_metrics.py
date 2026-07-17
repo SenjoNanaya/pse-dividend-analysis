@@ -1099,22 +1099,34 @@ def checklist_score(checklist):
     return passed, len(evaluable)
 
 
-def is_info_incomplete(company, financials):
-    """True when core company or latest-year filing data is missing."""
+def incomplete_reasons(company, financials):
+    """
+    Field-level reasons why a company fails the completeness gate.
+    Empty list means complete. Tokens: no_identity, no_financials, or
+    missing latest-year keys (revenue, net_income, total_assets, eps, book_value).
+    """
+    reasons = []
     if not company.get("name") and not company.get("ticker"):
-        return True
+        reasons.append("no_identity")
     fin = _complete_financials(financials)
     if not fin:
-        return True
+        reasons.append("no_financials")
+        return reasons
     latest = fin[-1]
     required = ("revenue", "net_income", "total_assets", "eps", "book_value")
     for key in required:
         if key in ZERO_AS_MISSING_KEYS:
-            if metric_value(latest.get(key), key) is None:
-                return True
-        elif safe_float(latest.get(key)) is None:
-            return True
-    return False
+            missing = metric_value(latest.get(key), key) is None
+        else:
+            missing = safe_float(latest.get(key)) is None
+        if missing:
+            reasons.append(key)
+    return reasons
+
+
+def is_info_incomplete(company, financials):
+    """True when core company or latest-year filing data is missing."""
+    return bool(incomplete_reasons(company, financials))
 
 
 def _is_common_dividend(d):

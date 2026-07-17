@@ -25,10 +25,36 @@ class CompanyFilter(django_filters.FilterSet):
     yield_min = django_filters.NumberFilter(method='filter_yield_min')
     roic_min = django_filters.NumberFilter(method='filter_roic_min')
     de_max = django_filters.NumberFilter(method='filter_de_max')
+    ids = django_filters.CharFilter(method='filter_ids')
 
     class Meta:
         model = Company
         fields = ['sector', 'subsector']
+
+    def _ids_mode(self):
+        """Watchlist loads pass ids=; keep all pinned rows, only rescore via annotations."""
+        request = getattr(self, 'request', None)
+        if request is None:
+            return False
+        return bool(str(request.query_params.get('ids') or '').strip())
+
+    def filter_ids(self, queryset, name, value):
+        """Comma-separated company PKs for watchlist loads."""
+        raw = str(value or '').strip()
+        if not raw:
+            return queryset
+        id_list = []
+        for part in raw.split(','):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                id_list.append(int(part))
+            except (TypeError, ValueError):
+                continue
+        if not id_list:
+            return queryset.none()
+        return queryset.filter(pk__in=id_list)
 
     def filter_cap_tier(self, queryset, name, value):
         key = str(value or '').strip().upper()
@@ -44,7 +70,7 @@ class CompanyFilter(django_filters.FilterSet):
         return qs
 
     def filter_pe_max(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(
             pe_ratio__isnull=False,
@@ -54,7 +80,7 @@ class CompanyFilter(django_filters.FilterSet):
         )
 
     def filter_pb_max(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(
             pb_ratio__isnull=False,
@@ -64,22 +90,22 @@ class CompanyFilter(django_filters.FilterSet):
         )
 
     def filter_roe_min(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(roe__isnull=False, roe__gt=value)
 
     def filter_yield_min(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(div_yield__isnull=False, div_yield__gte=value)
 
     def filter_roic_min(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(roic__isnull=False, roic__gte=value)
 
     def filter_de_max(self, queryset, name, value):
-        if value is None:
+        if value is None or self._ids_mode():
             return queryset
         return queryset.filter(
             debt_to_equity__isnull=False,

@@ -11,6 +11,7 @@ from src.report_metrics import (
     compute_growth,
     earnings_usable_for_valuation,
     growth_rate,
+    incomplete_reasons,
     is_info_incomplete,
     metric_value,
     pe_check_pass,
@@ -98,6 +99,8 @@ def test_ab_checklist_and_growth_overview():
     pe_item = checklist[0]
     assert pe_item["pass"] is False
     assert is_info_incomplete(company, financials) is True
+    reasons = incomplete_reasons(company, financials)
+    assert "revenue" in reasons
 
     years = [2023, 2024, 2025]
     company_data = {
@@ -620,6 +623,81 @@ def test_debt_to_equity_check():
     assert de_item["pass"] is True  # 140/120 < 2
 
 
+def test_threshold_checklist_rescore():
+    """Ratio thresholds rewrite labels/passes; structural checks stay put."""
+    from src.report_metrics import build_checklist, checklist_score
+
+    financials = [
+        {
+            "fiscal_year": 2024,
+            "book_value": 10.0,
+            "net_income": 40_000_000.0,
+            "total_assets": 200_000_000.0,
+            "total_liabilities": 80_000_000.0,
+            "stockholders_equity": 120_000_000.0,
+            "current_ratio": 1.5,
+            "quick_ratio": 1.2,
+            "eps": 2.0,
+            "outstanding_shares": 10_000_000.0,
+        },
+        {
+            "fiscal_year": 2025,
+            "book_value": 11.0,
+            "net_income": 48_000_000.0,
+            "total_assets": 220_000_000.0,
+            "total_liabilities": 90_000_000.0,
+            "stockholders_equity": 130_000_000.0,
+            "current_ratio": 1.6,
+            "quick_ratio": 1.3,
+            "eps": 2.4,
+            "outstanding_shares": 10_000_000.0,
+        },
+    ]
+    company = {
+        "ticker": "DEMO",
+        "name": "Demo Co",
+        "sector": "Industrial",
+        "pe_ratio": 15.0,
+        "pb_ratio": 0.8,
+        "roe": 0.12,
+        "outstanding_shares": 10_000_000.0,
+        "last_traded_price": 36.0,
+        "market_cap": 360_000_000.0,
+    }
+
+    default_cl = build_checklist(company, financials)
+    pe_default = next(i for i in default_cl if i["label"].startswith("P/E"))
+    assert pe_default["label"] == "P/E Ratio < 22"
+    assert pe_default["pass"] is True
+    roe_default = next(i for i in default_cl if i["label"].startswith("ROE"))
+    assert roe_default["label"] == "ROE > 10%"
+    assert roe_default["pass"] is True
+    default_pass, default_eval = checklist_score(default_cl)
+
+    tight_pe = build_checklist(company, financials, thresholds={"pe_max": 10})
+    pe_tight = next(i for i in tight_pe if i["label"].startswith("P/E"))
+    assert pe_tight["label"] == "P/E Ratio < 10"
+    assert pe_tight["pass"] is False
+
+    high_roe = build_checklist(company, financials, thresholds={"roe_min": 0.20})
+    roe_high = next(i for i in high_roe if i["label"].startswith("ROE"))
+    assert roe_high["label"] == "ROE > 20%"
+    assert roe_high["pass"] is False
+    high_pass, high_eval = checklist_score(high_roe)
+    assert high_eval == default_eval
+    assert high_pass == default_pass - 1
+
+    # Structural dilution / liquidity must not flip when only ratio thresholds change
+    def _struct(cl):
+        return {
+            i["label"]: i["pass"]
+            for i in cl
+            if i["label"] in ("NO Share Dilution", "Quick/Current R > 1", "Increasing BV")
+        }
+
+    assert _struct(default_cl) == _struct(tight_pe) == _struct(high_roe)
+
+
 def test_bank_equity_capital_return_mode():
     from src.report_metrics import compute_roic_series
 
@@ -671,5 +749,6 @@ if __name__ == "__main__":
     test_pl_scale_harmonize_and_ali_proxy_roic()
     test_dividend_entitlement_and_yield_guards()
     test_debt_to_equity_check()
+    test_threshold_checklist_rescore()
     test_bank_equity_capital_return_mode()
     print("ok")

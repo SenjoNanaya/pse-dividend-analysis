@@ -423,7 +423,11 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
               Each graph overlays the selected tickers on a shared timeline (same scale per metric).
             </p>
             <div className="compare-charts-grid">
-              {COMPARE_CHART_DEFS.map((def) => (
+              {COMPARE_CHART_DEFS.filter((def) => {
+                if (def.key !== 'outstandingShares' && def.key !== 'roic') return true;
+                const visKey = def.key;
+                return reports.some((r) => r?.chartVisibility?.[visKey]);
+              }).map((def) => (
                 <CompareChart
                   key={def.key}
                   title={def.title}

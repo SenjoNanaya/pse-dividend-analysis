@@ -1,7 +1,17 @@
 import ChecklistPreview from './ChecklistPreview';
+import DataQualityPanel from './DataQualityPanel';
 import { buildReport } from '../lib/metrics';
 
-export default function RegistryPreview({ company, status, onOpen, onClear, thresholds }) {
+export default function RegistryPreview({
+  company,
+  status,
+  onOpen,
+  onClear,
+  thresholds,
+  watched = false,
+  watchDisabled = false,
+  onToggleWatch,
+}) {
   if (status === 'loading') {
     return (
       <div className="nier-outer-box h-full">
@@ -34,7 +44,7 @@ export default function RegistryPreview({ company, status, onOpen, onClear, thre
             RECORD_PREVIEW_UNIT
           </p>
           <p className="text-xs uppercase tracking-widest opacity-60">
-            Select a company row to preview screening checklist and ratios.
+            Select a company row to preview screening, data quality, and ratios.
           </p>
         </div>
       </div>
@@ -68,10 +78,23 @@ export default function RegistryPreview({ company, status, onOpen, onClear, thre
           <ChecklistPreview report={report} compact showRatios />
         </div>
 
-        <div className="flex gap-2 mt-auto pt-2">
+        <DataQualityPanel quality={report.dataQuality} compact />
+
+        <div className="flex gap-2 mt-auto pt-2 flex-wrap">
           <button type="button" className="nier-btn grow text-xs" onClick={() => onOpen(company.id)}>
             OPEN FULL RECORD
           </button>
+          {onToggleWatch && (
+            <button
+              type="button"
+              className={`nier-btn px-3 text-xs${watched ? ' nier-watch-btn--on' : ''}`}
+              disabled={watchDisabled}
+              onClick={() => onToggleWatch(company)}
+              aria-pressed={watched}
+            >
+              {watched ? '★ WATCHING' : '☆ WATCH'}
+            </button>
+          )}
           {onClear && (
             <button type="button" className="nier-btn px-3 text-xs" onClick={onClear}>
               CLEAR

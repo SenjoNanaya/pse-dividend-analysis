@@ -1,5 +1,32 @@
 from rest_framework import serializers
+
+from src.report_metrics import incomplete_reasons, no_share_dilution_pass
+from src.utils import safe_float
+
 from .models import Company, Financial, Dividend
+
+
+def _financial_dicts(obj):
+    cache = getattr(obj, '_prefetched_objects_cache', {}) or {}
+    fins = cache.get('financial_set')
+    if fins is None:
+        fins = obj.financial_set.all()
+    rows = []
+    for f in fins:
+        rows.append(
+            {
+                'fiscal_year': f.fiscal_year,
+                'revenue': f.revenue,
+                'net_income': f.net_income,
+                'eps': f.eps,
+                'book_value': f.book_value,
+                'total_assets': f.total_assets,
+                'total_liabilities': f.total_liabilities,
+                'stockholders_equity': f.stockholders_equity,
+                'outstanding_shares': f.outstanding_shares,
+            }
+        )
+    return rows
 
 
 class CompanySerializer(serializers.ModelSerializer):
@@ -7,6 +34,7 @@ class CompanySerializer(serializers.ModelSerializer):
     cap_tier = serializers.SerializerMethodField()
     check_pass_count = serializers.SerializerMethodField()
     check_evaluable_total = serializers.SerializerMethodField()
+    dilution_pass = serializers.SerializerMethodField()
 
     class Meta:
         model = Company
@@ -17,7 +45,7 @@ class CompanySerializer(serializers.ModelSerializer):
             'last_updated',
             'check_pass_count', 'check_evaluable_total', 'info_incomplete',
             'check_struct_pass', 'check_struct_eval',
-            'passes_screen', 'cap_tier',
+            'passes_screen', 'cap_tier', 'dilution_pass',
         ]
 
     def _live_pass(self, obj):
@@ -56,6 +84,41 @@ class CompanySerializer(serializers.ModelSerializer):
             return 'MID'
         return 'LARGE'
 
+    def get_dilution_pass(self, obj):
+        """
+        YoY share-count check using prefetched financials when available.
+        Null when fewer than two years have outstanding_shares.
+        """
+        cache = getattr(obj, '_prefetched_objects_cache', {}) or {}
+        fins = cache.get('financial_set')
+        if fins is None:
+            # Avoid N+1 on the full registry list
+            if not self.context.get('compute_dilution'):
+                return None
+            fins = list(
+                obj.financial_set.order_by('fiscal_year').only(
+                    'fiscal_year', 'outstanding_shares'
+                )
+            )
+        else:
+            fins = sorted(fins, key=lambda f: f.fiscal_year or 0)
+
+        with_shares = []
+        for f in fins:
+            shares = safe_float(f.outstanding_shares)
+            if shares is not None and shares > 0:
+                with_shares.append(
+                    {
+                        'fiscal_year': f.fiscal_year,
+                        'outstanding_shares': shares,
+                    }
+                )
+        if len(with_shares) < 2:
+            return None
+        latest = with_shares[-1]
+        prev = with_shares[-2]
+        return no_share_dilution_pass(latest, prev)
+
 
 class FinancialSerializer(serializers.ModelSerializer):
     class Meta:
@@ -83,6 +146,17 @@ class DividendSerializer(serializers.ModelSerializer):
 class CompanyDetailSerializer(CompanySerializer):
     financials = FinancialSerializer(many=True, source='financial_set')
     dividends = DividendSerializer(many=True, source='dividend_set')
+    incomplete_reasons = serializers.SerializerMethodField()
 
     class Meta(CompanySerializer.Meta):
-        fields = CompanySerializer.Meta.fields + ['financials', 'dividends']
+        fields = CompanySerializer.Meta.fields + [
+            'financials',
+            'dividends',
+            'incomplete_reasons',
+        ]
+
+    def get_incomplete_reasons(self, obj):
+        return incomplete_reasons(
+            {'name': obj.name, 'ticker': obj.ticker},
+            _financial_dicts(obj),
+        )

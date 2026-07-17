@@ -523,6 +523,106 @@ body {
   outline-offset: -1px;
 }
 
+.nier-watch-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-nier-dark);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.nier-watch-btn:hover:not(:disabled) {
+  color: var(--color-nier-orange-ink);
+}
+.nier-watch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nier-watch-btn--on {
+  color: var(--color-nier-orange-ink);
+  font-weight: 700;
+}
+.nier-watch-btn:focus-visible {
+  outline: 2px solid var(--color-nier-dark);
+  outline-offset: 2px;
+}
+
+.watchlist-page {
+  width: 100%;
+}
+.watchlist-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.watchlist-copy {
+  margin: 0;
+  max-width: 40rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+.watchlist-warn {
+  margin: 0 0 0.75rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-nier-orange-ink);
+}
+.watchlist-alerts {
+  margin: 0 0 0.75rem;
+  border: 1px solid var(--color-nier-dark);
+  padding: 0.65rem 0.85rem;
+  background: color-mix(in srgb, var(--color-nier-orange) 12%, transparent);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 25%, transparent);
+}
+.watchlist-alerts-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+.watchlist-alerts-title {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+.watchlist-alerts-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.55;
+}
+.watchlist-ticker-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.watchlist-ticker-btn:hover {
+  color: var(--color-nier-dark);
+}
+
 .nier-compare-tray {
   display: flex;
   flex-wrap: wrap;
@@ -1125,6 +1225,9 @@ body {
 }
 .nier-landing-cta {
   margin-top: 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 .nier-landing-cta .nier-btn {
   padding: 1rem 2.4rem;
@@ -1565,6 +1668,129 @@ body {
   background: var(--color-nier-gray);
   color: var(--color-nier-dark);
   font-size: 8px;
+}
+
+/* Data quality panel */
+.dq-panel {
+  margin-bottom: 14px;
+}
+
+.dq-panel-compact {
+  margin-bottom: 0;
+}
+
+.dq-full-header,
+.dq-compact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 14px;
+  margin-bottom: 6px;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.dq-status {
+  font-weight: 800;
+  padding: 1px 6px;
+  border: 1px solid var(--color-nier-dark);
+}
+
+.dq-status-ok {
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+}
+
+.dq-status-bad {
+  background: color-mix(in srgb, var(--color-nier-orange) 40%, var(--color-nier-bg));
+  color: var(--color-nier-dark);
+}
+
+.dq-meta,
+.dq-compact-counts {
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.dq-muted {
+  opacity: 0.65;
+  margin-top: 2px;
+}
+
+.dq-missing,
+.dq-missing-line {
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-nier-orange-ink, var(--color-nier-orange));
+  margin: 0.35rem 0 0.25rem;
+}
+
+.dq-compact-counts.dq-missing {
+  margin-top: 2px;
+}
+
+.dq-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  margin-bottom: 6px;
+}
+
+.dq-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+
+.dq-table th,
+.dq-table td {
+  padding: 4px 8px;
+  text-align: center;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-nier-dark) 25%, transparent);
+}
+
+.dq-table thead th {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.65rem;
+  background: color-mix(in srgb, var(--color-nier-dark) 8%, transparent);
+}
+
+.dq-table tbody th {
+  text-align: left;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dq-mark {
+  display: inline-flex;
+  width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid var(--color-nier-dark);
+}
+
+.dq-empty {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.65;
+  padding: 8px 0;
+}
+
+.dq-footnote {
+  margin: 4px 0 0;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  line-height: 1.35;
 }
 
 .report-valuation {

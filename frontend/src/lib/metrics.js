@@ -399,6 +399,145 @@ function completeFinancials(financials = []) {
   return sortedFinancials(financials).filter(hasCoreMetrics);
 }
 
+/** Latest-year core fields used by backend incomplete_reasons / is_info_incomplete. */
+const INCOMPLETE_REQUIRED = [
+  ['revenue', true],
+  ['net_income', false],
+  ['total_assets', false],
+  ['eps', true],
+  ['book_value', false],
+];
+
+function yearHasCoreFiling(f) {
+  if (!f) return false;
+  for (const [key, zeroMissing] of INCOMPLETE_REQUIRED) {
+    const v = zeroMissing ? metricValue(f[key], key) : safeNum(f[key]);
+    if (v == null) return false;
+  }
+  return true;
+}
+
+/** Mirror src.report_metrics.incomplete_reasons for the report panel. */
+export function incompleteReasons(company, financials = []) {
+  const reasons = [];
+  if (!company?.name && !company?.ticker && !company?.symbol) {
+    reasons.push('no_identity');
+  }
+  const fin = completeFinancials(financials);
+  if (!fin.length) {
+    reasons.push('no_financials');
+    return reasons;
+  }
+  const latest = fin[fin.length - 1];
+  for (const [key, zeroMissing] of INCOMPLETE_REQUIRED) {
+    const v = zeroMissing ? metricValue(latest[key], key) : safeNum(latest[key]);
+    if (v == null) reasons.push(key);
+  }
+  return reasons;
+}
+
+/**
+ * YoY charts need enough points and low calendar gaps.
+ * fill = points / (maxYear − minYear + 1).
+ */
+export function isDenseYoYSeries(series, { minPoints = 3, minFill = 0.5 } = {}) {
+  const pts = (series || []).filter((d) => d != null && d.value != null);
+  if (pts.length < minPoints) return false;
+  const ys = pts
+    .map((d) => Number(d.year))
+    .filter((y) => Number.isFinite(y))
+    .sort((a, b) => a - b);
+  if (ys.length < minPoints) return false;
+  const span = ys[ys.length - 1] - ys[0] + 1;
+  if (span <= 0) return false;
+  return pts.length / span >= minFill;
+}
+
+function presentField(f, key) {
+  if (key === 'revenue' || key === 'eps') return metricValue(f?.[key], key) != null;
+  if (key === 'operating_income') return preferOperatingIncome(f) != null;
+  if (key === 'ga_expense') return normalizeGaExpense(f?.ga_expense) != null;
+  if (key === 'gross_profit') {
+    return safeNum(f?.gross_profit) != null || derivedGrossProfit(f) != null;
+  }
+  if (key === 'stockholders_equity') {
+    const e = safeNum(f?.stockholders_equity);
+    if (e != null && Math.abs(e) > 0) return true;
+    const a = safeNum(f?.total_assets);
+    const l = safeNum(f?.total_liabilities);
+    return a != null && l != null;
+  }
+  const n = safeNum(f?.[key]);
+  return n != null && (key === 'outstanding_shares' ? n > 0 : true);
+}
+
+/**
+ * Field-level coverage + screening readiness from a company detail payload.
+ * Uses stored financials (HTML + PDF fill-nulls already merged); no provenance.
+ */
+export function buildDataQuality(company, report = null) {
+  const financials = sortedFinancials(company?.financials || []);
+  const coverage = financials.map((f) => {
+    const year = String(f.fiscal_year);
+    return {
+      year,
+      core: yearHasCoreFiling(f),
+      cash: presentField(f, 'cash_and_equivalents'),
+      cl: presentField(f, 'total_current_liabilities'),
+      oi: presentField(f, 'operating_income'),
+      equity: presentField(f, 'stockholders_equity'),
+      shares: presentField(f, 'outstanding_shares'),
+      ga: presentField(f, 'ga_expense'),
+      gp: presentField(f, 'gross_profit'),
+    };
+  });
+
+  const summary = {
+    coreYears: coverage.filter((r) => r.core).length,
+    withCash: coverage.filter((r) => r.cash).length,
+    withCl: coverage.filter((r) => r.cl).length,
+    withOi: coverage.filter((r) => r.oi).length,
+    withShares: coverage.filter((r) => r.shares).length,
+    withEquity: coverage.filter((r) => r.equity).length,
+  };
+
+  const cashDivYears = new Set();
+  for (const d of dedupeDividends(company?.dividends || [])) {
+    if (!isCashDividend(d) || !isCommonDividend(d)) continue;
+    if (safeNum(d.amount) == null || !plausibleCashDps(d.amount)) continue;
+    const y = parseExDate(d.ex_date);
+    if (y) cashDivYears.add(y.getUTCFullYear());
+  }
+
+  const checklist = report?.checklist || [];
+  const checklistNa = checklist.filter((item) => item.pass === null).length;
+  const checklistEval = checklist.filter((item) => item.pass !== null).length;
+
+  const reasons =
+    Array.isArray(company?.incomplete_reasons) && company.incomplete_reasons.length
+      ? company.incomplete_reasons.map(String)
+      : incompleteReasons(company, financials);
+  const incomplete =
+    company?.info_incomplete != null
+      ? Boolean(company.info_incomplete)
+      : reasons.length > 0;
+
+  return {
+    incomplete,
+    incompleteReasons: reasons,
+    yearCount: coverage.length,
+    latestYear:
+      coverage.length > 0 ? coverage[coverage.length - 1].year : null,
+    roicMode: report?.roicMeta?.mode ?? null,
+    statementScope: report?.roicMeta?.statementScope ?? null,
+    checklistNa,
+    checklistEval,
+    cashDivYears: cashDivYears.size,
+    coverage,
+    summary,
+  };
+}
+
 export function seriesByKey(financials, key) {
   return sortedFinancials(financials)
     .map((f) => ({
@@ -957,6 +1096,11 @@ export function buildReport(company, thresholds) {
       ? debtEquitySeries[debtEquitySeries.length - 1].value
       : null;
 
+  // Millions of shares for axis readability (same shape as other YoY series)
+  const outstandingShares = seriesByKey(financials, 'outstanding_shares')
+    .filter((d) => d.value > 0)
+    .map((d) => ({ ...d, value: d.value / 1e6 }));
+
   const incomeCagr = growth.income;
   const zeroGrowthFv = earningsUsableForValuation(eps, netIncome)
     ? eps / 0.1
@@ -978,7 +1122,7 @@ export function buildReport(company, thresholds) {
 
   const score = checklistScore(checklist);
 
-  return {
+  const report = {
     displayTicker: company.ticker || company.symbol,
     companyName: company.name,
     companyId: company.id,
@@ -1000,6 +1144,7 @@ export function buildReport(company, thresholds) {
       balanceSheet,
       revenue: revenue.map((d) => ({ ...d, value: d.value / 1e9 })),
       eps: epsSeries,
+      outstandingShares,
       dividends: divSeries,
       roic: roicSeries,
       debtEquity: debtEquitySeries,
@@ -1029,7 +1174,13 @@ export function buildReport(company, thresholds) {
     checklistScore: score,
     latestYear,
     passesScreen: !company.info_incomplete && score.pass > 5,
+    chartVisibility: {
+      outstandingShares: isDenseYoYSeries(outstandingShares),
+      roic: isDenseYoYSeries(roicSeries),
+    },
   };
+  report.dataQuality = buildDataQuality(company, report);
+  return report;
 }
 
 export function evaluableChecklist(checklist = []) {

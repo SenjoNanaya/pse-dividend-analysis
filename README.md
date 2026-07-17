@@ -62,7 +62,15 @@ python scripts/backfill_cash_for_roic.py --limit 50
 python scripts/backfill_cash_for_roic.py --cached-pdfs-only --limit 50
 ```
 
-Sanity audit: `python scripts/sanity_check_rescrape.py`. ROIC PDF smoke tests: `python scripts/test_roic_pipeline.py`.
+Sanity audit: `python scripts/sanity_check_rescrape.py`.
+
+## Fixture tests
+
+```bash
+python scripts/run_fixture_tests.py
+```
+
+Runs parser HTML fixtures (`fixtures/parser/`: thousands/millions scale, zero parent NI), screening guards (yield scrub, threshold checklist labels, D/E, bank equity ROIC), ROIC PDF text fixtures (`fixtures/roic/`), and news relevance filters. No EDGE network calls.
 
 ## API and UI
 
@@ -94,13 +102,13 @@ Blank UI fields mean "All". Checklist defaults when thresholds are unset: P/E &l
 
 Registry (focused row): Enter / Space opens preview, `O` opens the full report, checkbox adds to compare (max 4). Reports include growth charts, balance-sheet history for book value (A−L), ratios, checklist, dividends, zero-growth fair-value scenarios, and the news feed.
 
-After scrape or schema changes that touch structural checks:
+After scrape or schema changes that touch company columns (offline, no EDGE):
 
 ```bash
-python scripts/backfill_struct_checks.py
-python scripts/backfill_div_yield.py
-python scripts/backfill_roic.py
+python scripts/backfill_all.py
 ```
+
+Runs stockholders equity → div yield → ROIC → structural checks. Cash/PDF network backfills stay under the Cash-null backfill section above.
 
 Example list query:
 
@@ -169,22 +177,65 @@ Required columns:
 
 Optional `sector` is used when present. The file is not shipped in the repo. Build it from the company directory XHR at `https://edge.pse.com.ph/companyDirectory/search.ax` (browser DevTools → Network) or a one-off script against that table.
 
-## Run locally
+## One-command demo
+
+Needs Python 3.8+ and Node.js 18+ on PATH. No scrape and no `companies.csv`.
+
+```bash
+python scripts/run_demo.py
+```
+
+This creates `.venv` if needed, installs dependencies, copies [`fixtures/demo/pse_demo.db`](fixtures/demo/pse_demo.db) to `data/pse_analysis.db` (backs up an existing DB once as `pse_analysis.db.bak-before-demo`), then starts Django (`:8000`) and Vite (`:5173`).
+
+Watchlist thresholds and pass/fail alerts live in the browser (`localStorage`); they are not synced to the server. Registry and watchlist both have **EXPORT CSV** for the current applied list.
+
+Useful flags: `--skip-install`, `--api-only`, `--no-browser`.
+
+Rebuild the sample DB from your own scrape:
+
+```bash
+python scripts/export_demo_db.py
+```
+
+Sample tickers: ALI (dense / proper ROIC), AUB/BDO (banks), AB (incomplete), plus AC, JFC, SM, and others.
+
+## Run locally (full scrape)
 
 Three processes after `companies.csv` exists:
 
 ```bash
-python main.py
+python main.py --skip-recent 0
 python manage.py runserver
 cd frontend && npm run dev
 ```
 
-`main.py` walks every CSV row, writes `data/pse_analysis.db`, skips incomplete companies into `processing_log`, and can emit matplotlib charts under `reports/` when enabled in that script.
+`main.py` walks CSV rows, writes `data/pse_analysis.db`, logs incomplete field reasons, and can emit matplotlib charts under `reports/` when enabled in that script.
+
+### Incremental rescrape
+
+Default skips companies successfully processed in the last 24 hours. Incomplete tickers are queued first, then oldest `last_updated`, then never-scraped CSV rows.
+
+```bash
+# Daily incremental (default --skip-recent 24)
+python main.py
+
+# Preview queue
+python main.py --dry-run --limit 20
+
+# Only incomplete rows, or a ticker list
+python main.py --incomplete-only --limit 50
+python main.py --tickers ALI,JFC,AB --skip-recent 0
+```
+
+Schedule with the OS (no in-app daemon). Windows Task Scheduler: daily action
+`python E:\path\to\Edge\main.py` with Start in = repo root. cron example:
+
+```bash
+0 3 * * * cd /path/to/Edge && .venv/bin/python main.py >> logs/incremental.log 2>&1
+```
 
 ## Roadmap (not done yet)
 
-- Automated tests focused on yield/scale parser cases and threshold → checklist rescoring
-- One-command local demo (Compose or a scripted sample DB)
 - Harder recovery when EDGE HTML layout changes
 
 ## LLM use

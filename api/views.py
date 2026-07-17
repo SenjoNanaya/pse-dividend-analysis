@@ -27,7 +27,11 @@ class CompanyListView(ListAPIView):
     def get_queryset(self):
         qs = super().get_queryset()
         thresholds = thresholds_from_request(self.request)
-        return annotate_live_checks(qs, thresholds)
+        qs = annotate_live_checks(qs, thresholds)
+        # Watchlist loads pass ids=; prefetch shares for dilution_pass
+        if self.request.query_params.get('ids'):
+            qs = qs.prefetch_related('financial_set')
+        return qs
 
     def filter_queryset(self, queryset):
         # Map legacy check_pass_count ordering to live annotation
@@ -53,6 +57,7 @@ class CompanyListView(ListAPIView):
     def get_serializer_context(self):
         ctx = super().get_serializer_context()
         ctx['thresholds'] = thresholds_from_request(self.request)
+        ctx['compute_dilution'] = bool(self.request.query_params.get('ids'))
         return ctx
 
 

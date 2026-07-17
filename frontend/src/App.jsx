@@ -5,6 +5,7 @@ import NierSelect from './components/NierSelect';
 import NierShell from './components/NierShell';
 import RegistryPreview from './components/RegistryPreview';
 import TickerNews from './components/TickerNews';
+import WatchlistView from './components/WatchlistView';
 import {
   formatMarketCap,
   formatPct,
@@ -12,6 +13,23 @@ import {
   marketCapTier,
   normalizeThresholds,
 } from './lib/metrics';
+import {
+  WATCHLIST_MAX,
+  clearWatchlist,
+  isWatched,
+  loadWatchlist,
+  pruneWatchlistIds,
+  removeWatch,
+  setWatchlistThresholds,
+  toggleWatch,
+} from './lib/watchlist';
+import {
+  COMPANY_CSV_COLUMNS,
+  csvDateStamp,
+  downloadCsv,
+  fetchAllListPages,
+  toCsv,
+} from './lib/csvExport';
 
 const API_BASE = 'http://127.0.0.1:8000/api/companies';
 const FACETS_URL = 'http://127.0.0.1:8000/api/companies/facets/';
@@ -230,6 +248,8 @@ export default function App() {
   const [detailStatus, setDetailStatus] = useState('idle');
 
   const [comparePicks, setComparePicks] = useState([]);
+  const [watchlist, setWatchlist] = useState(() => loadWatchlist());
+  const [returnView, setReturnView] = useState('dashboard');
 
   const listFetchUrl = pageUrl || buildListUrl({
     search: searchQuery,
@@ -415,22 +435,24 @@ export default function App() {
 
   useEffect(() => {
     if (view === 'compare' && comparePicks.length < 2) {
-      setView('dashboard');
+      setView(returnView === 'watchlist' ? 'watchlist' : 'dashboard');
     }
-  }, [view, comparePicks.length]);
+  }, [view, comparePicks.length, returnView]);
 
   const openCompare = () => {
     if (comparePicks.length < 2) return;
+    setReturnView(view === 'watchlist' ? 'watchlist' : 'dashboard');
     setView('compare');
   };
 
-  const openCompany = (id) => {
+  const openCompany = (id, fromView) => {
     setSelectedCompanyId(id);
+    setReturnView(fromView || (view === 'watchlist' ? 'watchlist' : 'dashboard'));
     setView('report');
   };
 
   const backToDirectory = () => {
-    setView('dashboard');
+    setView(returnView === 'watchlist' ? 'watchlist' : 'dashboard');
     setSelectedCompanyId(null);
     setCompanyDetails(null);
     setDetailStatus('idle');
@@ -439,6 +461,55 @@ export default function App() {
   const clearPreview = () => {
     setPreviewCompanyId(null);
   };
+
+  const toggleWatchlistPick = useCallback((company) => {
+    setWatchlist((prev) => toggleWatch(prev, company));
+  }, []);
+
+  const removeWatchlistPick = useCallback((id) => {
+    setWatchlist((prev) => removeWatch(prev, id));
+  }, []);
+
+  const clearWatchlistAll = useCallback(() => {
+    setWatchlist(clearWatchlist());
+  }, []);
+
+  const updateWatchlist = useCallback((patch) => {
+    setWatchlist((prev) => {
+      if (patch?.pruneIds) {
+        return pruneWatchlistIds(prev, patch.pruneIds);
+      }
+      if (patch?.thresholds) {
+        return setWatchlistThresholds(prev, patch.thresholds);
+      }
+      return prev;
+    });
+  }, []);
+
+  const [csvStatus, setCsvStatus] = useState(null);
+
+  const exportRegistryCsv = useCallback(async () => {
+    setCsvStatus('loading');
+    try {
+      // Always start from page 1 of the applied query (ignore pagination cursor).
+      const startUrl = buildListUrl({
+        search: searchQuery,
+        ordering,
+        filters: appliedFilters,
+      });
+      const { rows, count } = await fetchAllListPages(startUrl, {
+        headers: jsonHeaders,
+      });
+      downloadCsv(
+        `pse-registry-${csvDateStamp()}.csv`,
+        toCsv(rows, COMPANY_CSV_COLUMNS),
+      );
+      setCsvStatus(count != null ? `exported ${rows.length}/${count}` : `exported ${rows.length}`);
+    } catch (err) {
+      console.error('Registry CSV export failed:', err);
+      setCsvStatus(err.message || 'export failed');
+    }
+  }, [searchQuery, ordering, appliedFilters]);
 
   if (view === 'landing') {
     return (
@@ -467,6 +538,9 @@ export default function App() {
             <div className="nier-landing-cta">
               <button type="button" className="nier-btn" onClick={() => setView('dashboard')}>
                 Initialize Dashboard Sequence
+              </button>
+              <button type="button" className="nier-btn" onClick={() => setView('watchlist')}>
+                Open Watchlist
               </button>
             </div>
           </div>
@@ -522,15 +596,40 @@ export default function App() {
     );
   }
 
-  const colSpan = 11;
+  if (view === 'watchlist') {
+    return (
+      <NierShell className="select-text">
+        <WatchlistView
+          watchlist={watchlist}
+          onBack={backToDirectory}
+          onOpen={openCompany}
+          onRemove={removeWatchlistPick}
+          onClearAll={clearWatchlistAll}
+          onUpdateWatchlist={updateWatchlist}
+          onToggleCompare={toggleComparePick}
+          onOpenCompare={openCompare}
+          onClearCompare={clearComparePicks}
+          onRemoveCompare={removeComparePick}
+          comparePicks={comparePicks}
+          maxCompare={MAX_COMPARE}
+        />
+      </NierShell>
+    );
+  }
+
+  const colSpan = 12;
   const compareAtCap = comparePicks.length >= MAX_COMPARE;
+  const watchAtCap = watchlist.ids.length >= WATCHLIST_MAX;
 
   return (
     <NierShell className="select-text">
       <header className="nier-dashboard-header">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <button type="button" onClick={() => setView('landing')} className="nier-btn px-3 py-1 text-xs">
             &lt; DISCONNECT
+          </button>
+          <button type="button" onClick={() => setView('watchlist')} className="nier-btn px-3 py-1 text-xs">
+            WATCHLIST ({watchlist.ids.length})
           </button>
           <div className="w-2.5 h-2.5 bg-nier-dark hidden lg:block" />
           <h1 className="nier-title text-sm tracking-[0.18em]">CENTRAL_REGISTRY_UNIT</h1>
@@ -649,10 +748,23 @@ export default function App() {
               >
                 CLEAR
               </button>
+              <button
+                type="button"
+                className="nier-btn"
+                onClick={exportRegistryCsv}
+                disabled={listStatus === 'loading' || csvStatus === 'loading'}
+              >
+                {csvStatus === 'loading' ? 'EXPORTING…' : 'EXPORT CSV'}
+              </button>
             </div>
             {filterError && (
               <p className="nier-filter-error" role="alert">
                 {filterError}
+              </p>
+            )}
+            {csvStatus && csvStatus !== 'loading' && (
+              <p className="nier-filter-error" role="status" style={{ opacity: 0.75 }}>
+                CSV: {csvStatus}
               </p>
             )}
           </div>
@@ -714,6 +826,10 @@ export default function App() {
                     <span className="sr-only">Add to compare</span>
                     <span aria-hidden="true">⊕</span>
                   </th>
+                  <th className="nier-check-col" scope="col">
+                    <span className="sr-only">Add to watchlist</span>
+                    <span aria-hidden="true">★</span>
+                  </th>
                   <SortHeader label="TICKER" column="ticker" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="NAME" column="name" ordering={ordering} onSort={handleSort} />
                   <SortHeader label="PRICE" column="price" ordering={ordering} onSort={handleSort} />
@@ -758,6 +874,8 @@ export default function App() {
                     const tier = company.cap_tier || marketCapTier(company.market_cap);
                     const inCompare = comparePicks.some((p) => p.id === company.id);
                     const checkboxDisabled = !inCompare && compareAtCap;
+                    const watched = isWatched(watchlist, company.id);
+                    const watchDisabled = !watched && watchAtCap;
                     const ticker = company.ticker || company.symbol;
                     const onRowKeyDown = (e) => {
                       if (e.key === 'Enter') {
@@ -807,6 +925,30 @@ export default function App() {
                               }
                             />
                           </label>
+                        </td>
+                        <td
+                          className="nier-check-col"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            className={`nier-watch-btn${watched ? ' nier-watch-btn--on' : ''}`}
+                            disabled={watchDisabled}
+                            onClick={() => toggleWatchlistPick(company)}
+                            aria-pressed={watched}
+                            aria-label={
+                              watchDisabled
+                                ? `Watchlist full (max ${WATCHLIST_MAX}). Cannot add ${ticker}`
+                                : watched
+                                  ? `Remove ${ticker} from watchlist`
+                                  : `Add ${ticker} to watchlist`
+                            }
+                            title={watched ? 'On watchlist' : 'Add to watchlist'}
+                          >
+                            {watched ? '★' : '☆'}
+                          </button>
                         </td>
                         <td className="font-bold text-nier-orange">
                           {ticker}
@@ -865,6 +1007,13 @@ export default function App() {
               onOpen={openCompany}
               onClear={clearPreview}
               thresholds={appliedThresholds}
+              watched={previewCompany ? isWatched(watchlist, previewCompany.id) : false}
+              watchDisabled={
+                previewCompany
+                  ? !isWatched(watchlist, previewCompany.id) && watchAtCap
+                  : false
+              }
+              onToggleWatch={toggleWatchlistPick}
             />
             <TickerNews
               companyId={previewCompanyId}
