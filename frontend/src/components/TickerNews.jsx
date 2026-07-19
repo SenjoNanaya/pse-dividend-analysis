@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react';
-
-const API_BASE = 'http://127.0.0.1:8000/api/companies';
-const jsonHeaders = { Accept: 'application/json' };
+import { API_BASE, jsonHeaders } from '../lib/api';
 
 function formatNewsDate(iso) {
   if (!iso) return '';
@@ -44,11 +42,11 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
     fetch(`${API_BASE}/${companyId}/news/${qs}`, { headers: jsonHeaders })
       .then(async (res) => {
         if (!res.ok) {
-          const hint =
+          throw new Error(
             res.status === 404
-              ? 'News 404 — restart Django so /api/companies/<id>/news/ is loaded'
-              : `News ${res.status}`;
-          throw new Error(hint);
+              ? "News isn't available right now. If Edge was just updated, restart it and open this company again."
+              : "Couldn't load news for this ticker. Try again in a moment.",
+          );
         }
         return res.json();
       })
@@ -66,7 +64,7 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err.message || 'Failed to load news');
+        setError(err.message || "Couldn't load news for this ticker. Try again in a moment.");
         setItems([]);
         setHiddenCount(0);
         setStatus('error');
@@ -76,45 +74,44 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
   }, [companyId, showAll]);
 
   const sectionClass = compact ? 'report-news report-news--compact' : 'report-news';
-  const heading = compact ? 'h3' : 'h2';
-  const HeadingTag = heading;
   const visible = compact ? items.slice(0, 6) : items;
 
   return (
     <section className={sectionClass} aria-label={`News for ${ticker || 'selected ticker'}`}>
-      <HeadingTag className="report-section-label">News Feed</HeadingTag>
       {!compact && (
-        <p className="report-note report-news-note">
-          Aggregated headlines via Google News RSS (Philippines). Off-ticker noise is
-          filtered{ambiguous ? ' (short ticker — stricter match)' : ''}. External links open
-          in a new tab.
-        </p>
+        <>
+          <h2 className="report-section-label">News</h2>
+          <p className="report-note report-news-note">
+            Headlines from Google News (Philippines). Headlines that don&apos;t clearly match
+            this ticker are hidden
+            {ambiguous ? ' (short tickers use a stricter match)' : ''}. Links open in a new tab.
+          </p>
+        </>
       )}
 
       {status === 'idle' && (
-        <div className="report-news-status" role="status">
-          SELECT_A_ROW_TO_LOAD_NEWS
+        <div className="report-news-status nier-msg-plain" role="status">
+          Select a company to see news.
         </div>
       )}
 
       {status === 'loading' && (
-        <div className="report-news-status" role="status" aria-live="polite">
-          RETRIEVING_COVERAGE_STREAM...
+        <div className="report-news-status nier-msg-plain" role="status" aria-live="polite">
+          Loading news…
         </div>
       )}
 
       {status === 'error' && (
-        <div className="report-news-status" role="alert">
-          NEWS_FEED_UNAVAILABLE
-          {error ? <span className="report-news-error-detail"> — {error}</span> : null}
+        <div className="report-news-status nier-msg-plain" role="alert">
+          {error || "Couldn't load news for this ticker. Try again in a moment."}
         </div>
       )}
 
       {status === 'ready' && items.length === 0 && (
-        <div className="report-news-status" role="status">
+        <div className="report-news-status nier-msg-plain" role="status">
           {showAll || hiddenCount === 0
-            ? 'NO_RECENT_HEADLINES_FOR_QUERY'
-            : `NO_RELEVANT_HEADLINES (${hiddenCount} hidden)`}
+            ? 'No recent headlines found.'
+            : `No closely matching headlines (${hiddenCount} less relevant hidden).`}
         </div>
       )}
 

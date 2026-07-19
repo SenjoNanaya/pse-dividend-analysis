@@ -25,7 +25,9 @@ def main():
             """
             SELECT fiscal_year, revenue, net_income, eps, book_value,
                    total_assets, total_liabilities, stockholders_equity,
-                   current_ratio, quick_ratio, outstanding_shares
+                   current_ratio, quick_ratio, outstanding_shares,
+                   total_loans, total_deposits, npl, net_interest_income,
+                   allowance_for_credit_losses
             FROM financials WHERE company_id = ? ORDER BY fiscal_year
             """,
             (cid,),

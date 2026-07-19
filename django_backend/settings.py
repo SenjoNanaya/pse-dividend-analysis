@@ -10,28 +10,52 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 import os
-from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
 
+    load_dotenv()
+except ImportError:
+    pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+_INSECURE_DEV_KEY = (
+    'django-insecure-pi09yj%sgq$f(0k7&_wa$y&%&tledxv(1=sgk!v59z5ptgmh7a'
+)
+
+
+def _env_bool(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _env_list(name):
+    raw = os.environ.get(name, '')
+    return [part.strip() for part in raw.split(',') if part.strip()]
+
+
+DEBUG = _env_bool('DJANGO_DEBUG', default=True)
+
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', '').strip()
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = _INSECURE_DEV_KEY
+    else:
+        raise RuntimeError('DJANGO_SECRET_KEY is required when DJANGO_DEBUG is false')
+
+ALLOWED_HOSTS = _env_list('DJANGO_ALLOWED_HOSTS')
+if not ALLOWED_HOSTS:
+    if DEBUG:
+        ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+    else:
+        raise RuntimeError('DJANGO_ALLOWED_HOSTS is required when DJANGO_DEBUG is false')
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-pi09yj%sgq$f(0k7&_wa$y&%&tledxv(1=sgk!v59z5ptgmh7a'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
-
 
 # Application definition
 
@@ -51,13 +75,13 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    
 ]
 
 ROOT_URLCONF = 'django_backend.urls'
@@ -80,18 +104,20 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'django_backend.wsgi.application'
 
-
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
+_db_path = os.environ.get('DB_PATH', '').strip()
+if _db_path:
+    DATABASE_NAME = (
+        _db_path if os.path.isabs(_db_path) else os.path.join(BASE_DIR, _db_path)
+    )
+else:
+    DATABASE_NAME = os.path.join(BASE_DIR, 'data', 'pse_analysis.db')
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'data', 'pse_analysis.db'),
+        'NAME': DATABASE_NAME,
     }
 }
-# Password validation
-# https://docs.djangoproject.com/en/5.0/ref/settings/#auth-password-validators
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -108,12 +134,16 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-# Cors rules
-
-CORS_ALLOW_ALL_ORIGINS = True   # temp
-
-# Internationalization
-# https://docs.djangoproject.com/en/5.0/topics/i18n/
+_cors_origins = _env_list('CORS_ALLOWED_ORIGINS')
+if DEBUG and not _cors_origins:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
+    CORS_ALLOWED_ORIGINS = _cors_origins
+    if not DEBUG and not CORS_ALLOWED_ORIGINS:
+        raise RuntimeError(
+            'CORS_ALLOWED_ORIGINS is required when DJANGO_DEBUG is false'
+        )
 
 LANGUAGE_CODE = 'en-us'
 
@@ -123,14 +153,11 @@ USE_I18N = True
 
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/5.0/howto/static-files/
-
-STATIC_URL = 'static/'
-
-# Default primary key field type
-# https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
+STORAGES = {
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

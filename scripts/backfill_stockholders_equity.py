@@ -12,6 +12,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from src import db
+from src.field_sources import merge_source_tags, sources_from_json, sources_to_json
 
 
 def main():
@@ -20,7 +21,7 @@ def main():
     cur = conn.cursor()
     rows = cur.execute(
         """
-        SELECT id, total_assets, total_liabilities, stockholders_equity
+        SELECT id, total_assets, total_liabilities, stockholders_equity, field_sources
         FROM financials
         WHERE stockholders_equity IS NULL
           AND total_assets IS NOT NULL
@@ -30,9 +31,18 @@ def main():
     updated = 0
     for row in rows:
         equity = row["total_assets"] - row["total_liabilities"]
+        sources = merge_source_tags(
+            sources_from_json(row["field_sources"]),
+            ["stockholders_equity"],
+            "backfill",
+        )
         cur.execute(
-            "UPDATE financials SET stockholders_equity = ? WHERE id = ?",
-            (equity, row["id"]),
+            """
+            UPDATE financials
+            SET stockholders_equity = ?, field_sources = ?
+            WHERE id = ?
+            """,
+            (equity, sources_to_json(sources), row["id"]),
         )
         updated += 1
     conn.commit()

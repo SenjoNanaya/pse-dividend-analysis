@@ -5,12 +5,18 @@ import { loadSignalSnapshot, saveSignalSnapshot } from './watchlist';
  * Parse watchlist UI threshold strings into fractions used for signals.
  * yieldMin blank => null (skip yield alerts). deMax blank => default 2.
  */
+function parseOptionalNumber(raw) {
+  const s = String(raw ?? '').trim();
+  if (s === '') return NaN;
+  return Number(s);
+}
+
 export function parseWatchlistSignalThresholds(uiThresholds = {}) {
-  const pe = Number(String(uiThresholds.peMax ?? '').trim());
-  const pb = Number(String(uiThresholds.pbMax ?? '').trim());
-  const roePct = Number(String(uiThresholds.roeMin ?? '').trim());
+  const pe = parseOptionalNumber(uiThresholds.peMax);
+  const pb = parseOptionalNumber(uiThresholds.pbMax);
+  const roePct = parseOptionalNumber(uiThresholds.roeMin);
   const yieldPct = String(uiThresholds.yieldMin ?? '').trim();
-  const roicPct = Number(String(uiThresholds.roicMin ?? '').trim());
+  const roicPct = parseOptionalNumber(uiThresholds.roicMin);
   const deRaw = String(uiThresholds.deMax ?? '').trim();
 
   const yieldMin =
@@ -103,7 +109,7 @@ export function diffWatchlistAlerts(companies, uiThresholds, priorSnapshot = nul
         kind: 'dilution',
         from: boolLabel(prev.dilution),
         to: boolLabel(cur.dilution),
-        text: `${ticker} dilution ${boolLabel(prev.dilution)}→${boolLabel(cur.dilution)}`,
+        text: `${ticker}: share dilution now ${boolLabel(cur.dilution)} (was ${boolLabel(prev.dilution)})`,
       });
     }
     if (prev.de != null && cur.de != null && prev.de !== cur.de) {
@@ -113,7 +119,7 @@ export function diffWatchlistAlerts(companies, uiThresholds, priorSnapshot = nul
         kind: 'de',
         from: boolLabel(prev.de),
         to: boolLabel(cur.de),
-        text: `${ticker} D/E ${boolLabel(prev.de)}→${boolLabel(cur.de)}`,
+        text: `${ticker}: debt-to-equity now ${boolLabel(cur.de)} (was ${boolLabel(prev.de)})`,
       });
     }
     if (
@@ -127,7 +133,7 @@ export function diffWatchlistAlerts(companies, uiThresholds, priorSnapshot = nul
         kind: 'yield',
         from: boolLabel(prev.yieldPass),
         to: boolLabel(cur.yieldPass),
-        text: `${ticker} yield ${boolLabel(prev.yieldPass)}→${boolLabel(cur.yieldPass)}`,
+        text: `${ticker}: yield screen now ${boolLabel(cur.yieldPass)} (was ${boolLabel(prev.yieldPass)})`,
       });
     }
     if (
@@ -141,7 +147,7 @@ export function diffWatchlistAlerts(companies, uiThresholds, priorSnapshot = nul
         kind: 'checks',
         from: prev.checkPass,
         to: cur.checkPass,
-        text: `${ticker} checks ${prev.checkPass}→${cur.checkPass}`,
+        text: `${ticker}: checks ${prev.checkPass} → ${cur.checkPass}`,
       });
     }
 

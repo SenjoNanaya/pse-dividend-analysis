@@ -1,19 +1,79 @@
 @import "tailwindcss";
 
+/*
+  Design tokens (canonical for UI chrome).
+  JS charts mirror hex in lib/nierPalette.js — keep those in sync.
+  Roles: color-nier-* · text-* · tracking-* · surface-nier-* · shadow-nier-* · ease/duration-nier-* · z-*
+*/
 @theme {
   /* YoRHa / NieR:Automata — warm beige system (Kijima / CodePen levise) */
   --color-nier-bg: #c8c2aa;
   --color-nier-dark: #3f3b32;
-  --color-nier-dark-muted: #4a453c;
+  --color-nier-dark-muted: #4a453c; /* secondary ink — ≥4.5:1 on bg */
   --color-nier-light: #dcd8c0;
   --color-nier-gray: #bab5a1;
-  --color-nier-orange: #a67c52; /* fills / borders only */
+  --color-nier-orange: #a67c52; /* fills / borders only — never body text */
   --color-nier-orange-ink: #5c4024; /* text accent — AA on beige */
+
+  /* Data viz — same family, distinct series (mirrored in nierPalette.js) */
+  --color-nier-chart-axis: #4d493e;
+  --color-nier-chart-trend: #8a7a4a;
+  --color-nier-chart-olive: #7d8a6a;
+  --color-nier-chart-teal: #6a8a8a;
+  --color-nier-chart-rust: #8a6a5a;
+  --color-nier-chart-sand: #9a9278;
+  --color-nier-chart-slate: #6e7f8d;
+  /* Compare line strokes — darker for ≥3:1 on beige */
+  --color-nier-chart-compare-slate: #3d4a52;
+  --color-nier-chart-compare-olive: #3f4a36;
 
   --font-nier: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
 
-  --animate-fade-in: fade-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  --animate-wipe-in: wipe-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  /* Product type scale (~1.15 steps). html root 125% → 1rem ≈ 20px. */
+  --text-caption: 0.6875rem; /* dense chrome / meta */
+  --text-dense: 0.75rem;     /* compact controls */
+  --text-ui: 0.8125rem;      /* table headers, secondary */
+  --text-label: 0.875rem;    /* controls, table body */
+  --text-body: 1rem;
+  --text-heading: 1.125rem;
+  --text-title: 1.25rem;
+  --text-lead: 1.5rem;       /* compare tickers, mid emphasis */
+  --text-stat: 1.75rem;      /* report mcap / yield figures */
+  --text-display: 2rem;      /* report ticker (fixed rem) */
+
+  --tracking-ui: 0.1em;
+  --tracking-display: 0.18em;
+  --tracking-name: 0.02em;
+
+  /* Spacing (matches DESIGN.md) */
+  --space-xs: 0.4rem;
+  --space-sm: 0.65rem;
+  --space-md: 0.85rem;
+  --space-lg: 1.25rem;
+  --space-xl: 1.5rem;
+
+  /* Motion — expo ease-out; prefer transform/opacity only */
+  --ease-nier-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-nier-fast: 0.12s;
+  --duration-nier-mid: 0.15s;
+  --duration-nier-ui: 0.22s;
+
+  /* Surfaces & lift (semantic mixes of light/dark on beige) */
+  --surface-nier-recessed: color-mix(in srgb, var(--color-nier-light) 28%, transparent);
+  --surface-nier-faint: color-mix(in srgb, var(--color-nier-light) 30%, transparent);
+  --surface-nier-panel-soft: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
+  --surface-nier-panel: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  --surface-nier-inner: color-mix(in srgb, var(--color-nier-light) 42%, transparent);
+  --surface-nier-panel-mid: color-mix(in srgb, var(--color-nier-light) 45%, transparent);
+  --surface-nier-title: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
+  --surface-nier-raised: color-mix(in srgb, var(--color-nier-light) 70%, transparent);
+  --surface-nier-input: color-mix(in srgb, var(--color-nier-light) 75%, transparent);
+  --shadow-nier-lift-soft: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
+  --shadow-nier-lift: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
+  --shadow-nier-lift-strong: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
+
+  --animate-fade-in: fade-in 0.45s var(--ease-nier-out) forwards;
+  --animate-wipe-in: wipe-in 0.55s var(--ease-nier-out) forwards;
 
   @keyframes fade-in {
     from { opacity: 0; transform: translateY(6px); }
@@ -44,8 +104,17 @@ body {
   line-height: 1.45;
   background-color: var(--color-nier-bg);
   background-image:
-    linear-gradient(90deg, transparent 0, transparent 3px, rgba(0, 0, 0, 0.07) 4px),
-    linear-gradient(transparent 0, transparent 3px, rgba(0, 0, 0, 0.07) 4px);
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 3px,
+      color-mix(in srgb, var(--color-nier-dark) 7%, transparent) 4px
+    ),
+    linear-gradient(
+      transparent 0,
+      transparent 3px,
+      color-mix(in srgb, var(--color-nier-dark) 7%, transparent) 4px
+    );
   background-size: 4px 4px;
   box-shadow:
     inset 0 0 120px color-mix(in srgb, var(--color-nier-dark) 38%, transparent),
@@ -92,8 +161,66 @@ body {
   outline-offset: 2px;
 }
 
+/* z-index scale: dropdown → sticky → modal-backdrop → modal → toast → tooltip */
+:root {
+  --z-dropdown: 50;
+  --z-sticky: 60;
+  --z-modal-backdrop: 70;
+  --z-modal: 80;
+  --z-toast: 90;
+  --z-tooltip: 100;
+}
+
+/* Micro chrome labels — rem meta (replaces text-[10px]) */
+.nier-meta {
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+}
+
+/* Sentence-case data (sector / subsector) inside uppercase tables */
+.nier-sentence,
+.nier-table td.nier-sentence {
+  text-transform: none;
+  letter-spacing: var(--tracking-name);
+  font-weight: 400;
+}
+
+.nier-skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: var(--z-toast);
+  padding: 0.65rem 1rem;
+  background: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+  font-size: var(--text-ui);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transform: translateY(-150%);
+  transition: transform var(--duration-nier-mid) var(--ease-nier-out);
+}
+.nier-skip-link:focus,
+.nier-skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--color-nier-bg);
+  outline-offset: 2px;
+}
+
 .text-nier-orange {
   color: var(--color-nier-orange-ink) !important;
+}
+
+/* Readable secondary text — solid tokens, never opacity fades */
+.nier-ink {
+  color: var(--color-nier-dark);
+}
+.nier-ink-muted {
+  color: var(--color-nier-dark-muted);
 }
 
 .sr-only {
@@ -281,6 +408,17 @@ body {
   transform: scaleY(-1);
 }
 
+/* Thin ornaments on task views; landing keeps full theater */
+.nier-shell:not(.nier-landing) .nier-ornament::after {
+  height: 18px;
+  transform: scaleY(0.5);
+  transform-origin: top;
+}
+.nier-shell:not(.nier-landing) .nier-ornament--flip::after {
+  transform: scaleY(-0.5);
+  transform-origin: bottom;
+}
+
 /* Left staff / colon-bar accent */
 .nier-rail {
   padding-left: 2.75rem;
@@ -299,8 +437,9 @@ body {
 .nier-title {
   text-transform: uppercase;
   font-weight: 500;
-  letter-spacing: 0.45rem;
+  letter-spacing: var(--tracking-display);
   text-shadow: 0.22rem 0.22rem 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  text-wrap: balance;
 }
 
 .nier-title-ghost {
@@ -330,25 +469,30 @@ body {
   background-color: var(--color-nier-light);
   color: var(--color-nier-dark);
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: var(--text-label);
   font-weight: 500;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-ui);
   text-transform: uppercase;
   cursor: pointer;
-  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
+  /* Color waits for the fill wipe so mid-hover contrast stays readable */
+  transition:
+    color var(--duration-nier-fast) var(--ease-nier-out) 0.1s,
+    background-color 0.2s ease,
+    border-color 0.2s ease;
   overflow: hidden;
   min-height: 2.75rem;
+  isolation: isolate;
 }
 .nier-btn::before {
   content: "";
   position: absolute;
   z-index: -1;
-  left: 0;
-  top: 3px;
-  bottom: 3px;
-  width: 0;
+  inset: 3px 0;
+  width: 100%;
   background-color: var(--color-nier-dark);
-  transition: width 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--duration-nier-ui) var(--ease-nier-out);
 }
 .nier-btn:hover:not(:disabled),
 .nier-btn:focus-visible:not(:disabled) {
@@ -359,27 +503,50 @@ body {
   outline-offset: 2px;
 }
 .nier-btn:hover:not(:disabled)::before,
-.nier-btn:focus-visible:not(:disabled)::before {
-  width: 100%;
+.nier-btn:focus-visible:not(:disabled)::before,
+.nier-btn:active:not(:disabled)::before {
+  transform: scaleX(1);
+}
+.nier-btn:active:not(:disabled) {
+  color: var(--color-nier-bg);
+  background-color: transparent;
 }
 .nier-btn:disabled {
   opacity: 0.45;
   pointer-events: none;
 }
 
+/* Dense chrome (headers, trays) — keeps ≥2.5rem touch target */
+.nier-btn--compact {
+  padding: 0.4rem 0.85rem;
+  font-size: var(--text-dense);
+  min-height: 2.5rem;
+  letter-spacing: 0.08em;
+}
+
+/* Proper nouns — readable title case inside an otherwise uppercase UI */
+.nier-proper-name,
+.nier-table td.nier-proper-name {
+  text-transform: none;
+  letter-spacing: var(--tracking-name);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .nier-input {
-  background: color-mix(in srgb, var(--color-nier-light) 75%, transparent);
+  background: var(--surface-nier-input);
   border: 1px solid var(--color-nier-dark);
   border-radius: 0;
   padding: 0.85rem 1rem;
   color: var(--color-nier-dark);
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: var(--text-label);
   font-weight: 400;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   outline: none;
-  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.15s ease, background-color var(--duration-nier-mid) ease, box-shadow 0.15s ease;
   min-height: 2.75rem;
 }
 .nier-input:focus,
@@ -399,12 +566,12 @@ body {
   border: 2px solid var(--color-nier-dark);
   padding: 3px;
   background: transparent;
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
+  box-shadow: var(--shadow-nier-lift-strong);
 }
 .nier-inner-box {
   border: 1px solid var(--color-nier-dark);
   height: 100%;
-  background: color-mix(in srgb, var(--color-nier-light) 42%, transparent);
+  background: var(--surface-nier-inner);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -413,9 +580,10 @@ body {
 /* Table styles */
 .nier-table-container {
   border: 1px solid var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-light) 28%, transparent);
+  background: var(--surface-nier-recessed);
   overflow-x: auto;
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
+  box-shadow: var(--shadow-nier-lift);
+  contain: layout paint;
 }
 .nier-table {
   width: 100%;
@@ -428,17 +596,17 @@ body {
   color: var(--color-nier-bg);
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.8125rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   padding: 0.95rem 1rem;
 }
 .nier-table td {
   padding: 0.9rem 1rem;
-  font-size: 0.875rem;
+  font-size: var(--text-label);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   border-bottom: 1px solid color-mix(in srgb, var(--color-nier-gray) 55%, transparent);
-  transition: background-color 0.15s ease;
+  transition: background-color var(--duration-nier-mid) ease;
 }
 .nier-sort-btn {
   background: transparent;
@@ -450,7 +618,7 @@ body {
   text-align: left;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 0.8125rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   cursor: pointer;
   color: var(--color-nier-bg);
@@ -480,7 +648,7 @@ body {
 .nier-cap-tier {
   margin-left: 0.5rem;
   display: inline-block;
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.1em;
   font-weight: 600;
   vertical-align: middle;
@@ -527,18 +695,24 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 2rem;
-  min-height: 2rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  margin: -0.35rem;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-nier-dark);
-  font-size: 1rem;
+  font-size: var(--text-heading);
   line-height: 1;
   cursor: pointer;
+  transition: color var(--duration-nier-mid) var(--ease-nier-out), background-color var(--duration-nier-mid) ease;
 }
 .nier-watch-btn:hover:not(:disabled) {
   color: var(--color-nier-orange-ink);
+  background: color-mix(in srgb, var(--color-nier-orange) 12%, transparent);
+}
+.nier-watch-btn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
 }
 .nier-watch-btn:disabled {
   opacity: 0.4;
@@ -567,17 +741,18 @@ body {
 .watchlist-copy {
   margin: 0;
   max-width: 40rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: var(--text-caption);
+  text-transform: none;
+  letter-spacing: 0.02em;
   line-height: 1.5;
-  opacity: 0.75;
+  color: var(--color-nier-dark-muted);
 }
 .watchlist-warn {
   margin: 0 0 0.75rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: var(--text-caption);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  line-height: 1.45;
   color: var(--color-nier-orange-ink);
 }
 .watchlist-alerts {
@@ -596,17 +771,66 @@ body {
   margin-bottom: 0.4rem;
 }
 .watchlist-alerts-title {
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.12em;
   font-weight: 700;
 }
 .watchlist-alerts-list {
   margin: 0;
   padding-left: 1.1rem;
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   line-height: 1.55;
+}
+.watchlist-alerts-list li + li {
+  margin-block-start: 0.25rem;
+}
+.watchlist-alert-btn {
+  display: inline;
+  margin: 0;
+  padding: 0.15rem 0.2rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+.watchlist-alert-btn:hover,
+.watchlist-alert-btn:focus-visible {
+  border-color: var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-dark) 8%, transparent);
+  outline: none;
+}
+.watchlist-alert-btn--active {
+  border-color: var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
+  font-weight: 700;
+  text-decoration: none;
+}
+.watchlist-alerts-hint {
+  margin: 0.45rem 0 0;
+  font-size: var(--text-caption);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  color: var(--color-nier-dark);
+  opacity: 0.8;
+}
+.nier-preview-notice {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-orange) 14%, transparent);
+  font-size: var(--text-caption);
+  letter-spacing: 0.02em;
+  line-height: 1.45;
+  color: var(--color-nier-orange-ink);
 }
 .watchlist-ticker-btn {
   background: none;
@@ -641,7 +865,7 @@ body {
   gap: 0.45rem;
 }
 .nier-compare-tray-label {
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -651,14 +875,15 @@ body {
   border: 1px solid var(--color-nier-dark);
   background: color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
   color: var(--color-nier-dark);
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   padding: 0.45rem 0.75rem;
-  min-height: 2.4rem;
+  min-height: 2.75rem;
   cursor: pointer;
   font-family: inherit;
+  transition: background-color var(--duration-nier-mid) ease, color 0.15s ease;
 }
 .nier-compare-chip:hover,
 .nier-compare-chip:focus-visible {
@@ -667,8 +892,12 @@ body {
   outline: 2px solid var(--color-nier-dark);
   outline-offset: 2px;
 }
+.nier-compare-chip:active {
+  background: var(--color-nier-dark-muted);
+  color: var(--color-nier-bg);
+}
 .nier-compare-tray-count {
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   color: var(--color-nier-dark-muted);
   letter-spacing: 0.06em;
 }
@@ -696,9 +925,9 @@ body {
   min-height: 60vh;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  font-size: 12px;
-  font-weight: 300;
-  opacity: 0.7;
+  font-size: var(--text-dense);
+  font-weight: 400;
+  color: var(--color-nier-dark-muted);
 }
 .compare-topbar {
   display: flex;
@@ -719,7 +948,7 @@ body {
   position: relative;
   border: 1px solid var(--color-nier-dark);
   padding: 0.75rem 1rem;
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
   box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
 }
 .compare-ticker-name {
@@ -727,7 +956,7 @@ body {
   border: 0;
   padding: 0.25rem 0;
   color: var(--color-nier-orange-ink);
-  font-size: 1.5rem;
+  font-size: var(--text-lead);
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -742,27 +971,32 @@ body {
   outline-offset: 3px;
 }
 .compare-ticker-company {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.75;
+  font-size: var(--text-ui);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--color-nier-dark-muted);
   margin-top: 0.35rem;
   line-height: 1.35;
-  font-weight: 400;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 .compare-ticker-remove {
   position: absolute;
-  top: 4px;
-  right: 6px;
+  top: 2px;
+  right: 2px;
   border: 0;
   background: transparent;
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
   color: var(--color-nier-dark);
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: inherit;
-  min-width: 2.4rem;
-  min-height: 2.4rem;
 }
 .compare-ticker-remove:hover,
 .compare-ticker-remove:focus-visible {
@@ -773,14 +1007,14 @@ body {
 .compare-table-wrap {
   border: 1px solid var(--color-nier-dark);
   overflow-x: auto;
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
-  background: color-mix(in srgb, var(--color-nier-light) 30%, transparent);
+  box-shadow: var(--shadow-nier-lift);
+  background: var(--surface-nier-faint);
 }
 .compare-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 0.9rem;
+  font-size: var(--text-label);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -791,7 +1025,7 @@ body {
   font-weight: 500;
   letter-spacing: 0.08em;
   white-space: nowrap;
-  font-size: 0.85rem;
+  font-size: var(--text-label);
 }
 .compare-table td {
   padding: 0.7rem 1rem;
@@ -805,11 +1039,10 @@ body {
 .compare-table th[scope='row'] {
   font-weight: 500;
   white-space: nowrap;
-  opacity: 0.85;
   width: 11rem;
   text-align: left;
   background: transparent;
-  color: inherit;
+  color: var(--color-nier-dark);
   padding: 0.7rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--color-nier-gray) 40%, transparent);
   vertical-align: middle;
@@ -827,25 +1060,25 @@ body {
 .compare-check-row td:first-child,
 .compare-check-row th[scope='row'] {
   font-weight: 400;
-  opacity: 0.75;
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
+  color: var(--color-nier-dark-muted);
 }
 .compare-pass { color: var(--color-nier-orange-ink); font-weight: 700; }
 .compare-fail { color: var(--color-nier-dark-muted); }
-.compare-na { color: var(--color-nier-dark-muted); opacity: 0.7; }
+.compare-na { color: var(--color-nier-dark-muted); }
 .compare-roic-mode {
   font-size: 0.7em;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.65;
+  color: var(--color-nier-dark-muted);
   font-weight: 500;
 }
 .compare-note {
   margin-top: 1rem;
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  opacity: 0.65;
+  color: var(--color-nier-dark-muted);
   max-width: 52rem;
   line-height: 1.55;
   font-weight: 400;
@@ -854,9 +1087,17 @@ body {
   margin-top: 0.35rem;
   margin-bottom: 1rem;
 }
+.report-section-label,
+.compare-section-label,
+.compare-heading,
+h1, h2, h3 {
+  text-wrap: balance;
+}
 .compare-heading {
-  font-size: 1.05rem;
-  letter-spacing: 0.16em;
+  font-size: var(--text-heading);
+  font-weight: 600;
+  letter-spacing: var(--tracking-ui);
+  text-transform: uppercase;
 }
 .compare-panel-toggle {
   display: flex;
@@ -869,12 +1110,12 @@ body {
   background: transparent !important;
 }
 .compare-tab-active::before {
-  width: 100% !important;
+  transform: scaleX(1) !important;
 }
 .compare-section-label {
-  font-size: 0.9rem;
+  font-size: var(--text-label);
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: var(--tracking-ui);
   text-transform: uppercase;
   border-bottom: 1px solid var(--color-nier-dark);
   padding-bottom: 0.35rem;
@@ -892,12 +1133,15 @@ body {
 .compare-chart-card {
   border: 1px solid var(--color-nier-dark);
   padding: 0.75rem 0.85rem 0.5rem;
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
   box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 30%, transparent);
   min-height: 260px;
+  contain: layout paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
 }
 .compare-chart-title {
-  font-size: 0.85rem;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -909,7 +1153,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--color-nier-dark-muted);
-  font-size: 0.85rem;
+  font-size: var(--text-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -933,6 +1177,12 @@ body {
   padding-bottom: 0.75rem;
   margin-bottom: 1.5rem;
 }
+.nier-dashboard-header .nier-btn {
+  /* Keep header actions touch-safe even with text-xs / py-1 utilities */
+  min-height: 2.75rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
 @media (min-width: 1024px) {
   .nier-dashboard-header {
     flex-direction: row;
@@ -948,27 +1198,191 @@ body {
 .nier-dashboard-stack {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
+  gap: var(--space-md);
 }
 
 .nier-controls {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-sm);
   width: 100%;
 }
 
 .nier-dashboard-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1.25rem;
+  gap: var(--space-lg);
   align-items: start;
+  margin-block-start: var(--space-sm);
 }
 
 @media (min-width: 1024px) {
   .nier-dashboard-grid {
-    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+    /* Table-first: shortlist gets the width; rail is a narrow unit */
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
   }
+
+  .nier-dashboard-grid--focus {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nier-dashboard-grid--focus {
+  grid-template-columns: 1fr;
+}
+
+/* Focus mode: ~10% denser so ratio columns fit without heavy horizontal scroll. */
+.nier-dashboard-stack--focus {
+  max-width: none;
+  width: 100%;
+  padding-inline: 0.5rem;
+}
+
+.nier-dashboard-grid--focus .nier-table-container {
+  zoom: 0.9;
+}
+
+@supports not (zoom: 1) {
+  .nier-dashboard-grid--focus .nier-table-container {
+    font-size: 90%;
+  }
+
+  .nier-dashboard-grid--focus .nier-table th {
+    padding: 0.75rem 0.7rem;
+    font-size: var(--text-dense);
+  }
+
+  .nier-dashboard-grid--focus .nier-table td {
+    padding: 0.7rem 0.7rem;
+    font-size: var(--text-ui);
+  }
+}
+
+.nier-btn--pressed {
+  background: transparent;
+  color: var(--color-nier-bg);
+}
+.nier-btn--pressed::before {
+  transform: scaleX(1);
+}
+
+.nier-preview-bar {
+  border: 1px solid var(--color-nier-dark);
+  background: var(--surface-nier-panel-soft);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+}
+
+.nier-preview-bar-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.75rem 1rem;
+  padding: 0.65rem 0.85rem;
+}
+
+.nier-preview-bar-empty {
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem 0.75rem;
+  min-height: 2.75rem;
+}
+
+.nier-preview-bar-id {
+  min-width: 9rem;
+  max-width: 14rem;
+  flex: 0 1 12rem;
+}
+
+.nier-preview-bar-ticker {
+  font-size: var(--text-title);
+  font-weight: 700;
+  color: var(--color-nier-orange-ink);
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+}
+
+.nier-preview-bar-name {
+  font-size: var(--text-dense);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  color: var(--color-nier-dark-muted);
+  margin-top: 0.15rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nier-preview-bar-mcap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  font-size: var(--text-ui);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.nier-preview-bar-dq {
+  vertical-align: middle;
+}
+
+.nier-preview-bar-checks {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.nier-preview-bar-checks .report-checklist-preview-compact .report-check-cols-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 0.75rem;
+}
+
+.nier-preview-bar-checks .report-check-row-compact {
+  font-size: var(--text-caption);
+  padding: 0.05rem 0;
+}
+
+.nier-preview-bar-dq-panel {
+  flex: 0 1 14rem;
+  min-width: 10rem;
+  max-height: 7.5rem;
+  overflow: auto;
+}
+
+.nier-preview-bar-dq-panel .dq-panel-compact {
+  margin: 0;
+}
+
+.nier-preview-bar-dq-panel .dq-coverage-table {
+  display: none;
+}
+
+.nier-dq-chip {
+  display: inline-block;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border: 1px solid var(--color-nier-dark);
+  white-space: nowrap;
+}
+
+.nier-dq-chip--ok {
+  border-color: transparent;
+  font-weight: 500;
+  color: var(--color-nier-dark-muted);
+}
+
+.nier-dq-chip--warn {
+  background: color-mix(in srgb, var(--color-nier-dark) 12%, var(--color-nier-bg));
+  color: var(--color-nier-dark);
+}
+
+.nier-dq-chip--bad {
+  background: color-mix(in srgb, var(--color-nier-orange) 40%, var(--color-nier-bg));
+  color: var(--color-nier-dark);
 }
 
 .nier-table-column {
@@ -981,12 +1395,52 @@ body {
 .nier-detail-column {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-md);
   min-width: 0;
   position: sticky;
   top: 0.75rem;
+  z-index: var(--z-sticky);
   max-height: calc(100vh - 1.5rem);
   overflow: auto;
+}
+
+.nier-news-drawer {
+  border-top: 1px dotted color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
+  padding-top: var(--space-sm);
+}
+.nier-news-drawer-summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+  padding: 0.35rem 0;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+}
+.nier-news-drawer-summary::-webkit-details-marker {
+  display: none;
+}
+.nier-news-drawer[open] .nier-news-drawer-summary {
+  margin-bottom: var(--space-xs);
+  color: var(--color-nier-dark);
+}
+
+.nier-table-column .nier-table th,
+.nier-table-column .nier-table td {
+  padding: 0.7rem 0.65rem;
+}
+.nier-table-column .nier-col-sector {
+  max-width: 8.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nier-table-column .nier-col-trust {
+  white-space: nowrap;
 }
 
 .nier-search-form {
@@ -996,18 +1450,101 @@ body {
 .nier-filter-bar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem 0.75rem;
+  gap: var(--space-sm) var(--space-md);
   border: 1px solid var(--color-nier-dark);
-  padding: 0.75rem;
-  background: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  padding: var(--space-sm);
+  background: var(--surface-nier-panel-soft);
+  /* Flat chrome — lift reserved for table / preview units */
+  box-shadow: none;
+}
+.nier-filter-bar--thresholds {
+  border-style: dashed;
+  background: var(--surface-nier-faint);
 }
 .nier-row-hint {
   margin: 0.35rem 0 0;
-  font-size: 0.65rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.55;
+  color: var(--color-nier-dark-muted);
+}
+/* Task copy: keep readable sentence case inside uppercase chrome contexts */
+.nier-msg-plain {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  line-height: 1.45;
+  font-weight: 500;
+}
+.nier-checks-qualified {
+  color: var(--color-nier-orange);
+  font-weight: 700;
+}
+.nier-subsector-inline {
+  font-size: 0.92em;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+.report-check-fails {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.35rem;
+}
+.report-check-all-pass {
+  margin: 0.35rem 0 0;
+  font-size: var(--text-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.report-check-all,
+.dq-compact-detail,
+.dq-grid-disclosure,
+.report-method-disclosure,
+.report-section-disclosure {
+  margin-top: 0.5rem;
+}
+.report-check-all > summary,
+.dq-compact-detail > summary,
+.dq-grid-disclosure > summary,
+.report-method-disclosure > summary,
+.report-section-disclosure > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: var(--text-caption);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+  padding: 0.25rem 0;
+}
+.report-check-all > summary::-webkit-details-marker,
+.dq-compact-detail > summary::-webkit-details-marker,
+.dq-grid-disclosure > summary::-webkit-details-marker,
+.report-method-disclosure > summary::-webkit-details-marker,
+.report-section-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.report-check-all > summary::before,
+.dq-compact-detail > summary::before,
+.dq-grid-disclosure > summary::before,
+.report-method-disclosure > summary::before,
+.report-section-disclosure > summary::before {
+  content: "+ ";
+  color: var(--color-nier-orange);
+}
+.report-check-all[open] > summary::before,
+.dq-compact-detail[open] > summary::before,
+.dq-grid-disclosure[open] > summary::before,
+.report-method-disclosure[open] > summary::before,
+.report-section-disclosure[open] > summary::before {
+  content: "− ";
+}
+.report-ratios-lead {
+  margin-bottom: var(--space-md, 1rem);
+}
+.report-section-disclosure {
+  margin-top: var(--space-md, 1rem);
+  padding: var(--space-sm, 0.75rem) 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-nier-dark) 18%, transparent);
 }
 @media (min-width: 700px) {
   .nier-filter-bar {
@@ -1032,7 +1569,7 @@ body {
   width: 100%;
   min-width: 0;
   padding: 0.55rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   letter-spacing: 0.06em;
 }
 .nier-threshold-input::-webkit-outer-spin-button,
@@ -1044,12 +1581,15 @@ body {
   -moz-appearance: textfield;
   appearance: textfield;
 }
-.nier-filter-error {
+.nier-filter-error,
+.nier-filter-status {
   grid-column: 1 / -1;
   margin: 0;
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+.nier-filter-error {
   color: var(--color-nier-orange-ink);
 }
 .nier-filter-field {
@@ -1060,7 +1600,7 @@ body {
   position: relative;
 }
 .nier-filter-field span {
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1076,10 +1616,10 @@ body {
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--color-nier-gray);
   border-radius: 0;
-  background: color-mix(in srgb, var(--color-nier-light) 70%, transparent);
+  background: var(--surface-nier-raised);
   color: var(--color-nier-dark);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1108,11 +1648,6 @@ body {
   transform: rotate(180deg);
 }
 .nier-select-menu {
-  position: absolute;
-  z-index: 40;
-  left: 0;
-  right: 0;
-  top: calc(100% + 2px);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1121,10 +1656,22 @@ body {
   border: 1px solid var(--color-nier-dark);
   background-color: var(--color-nier-bg);
   background-image:
-    linear-gradient(90deg, transparent 0, transparent 3px, rgba(0, 0, 0, 0.06) 4px),
-    linear-gradient(transparent 0, transparent 3px, rgba(0, 0, 0, 0.06) 4px);
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 3px,
+      color-mix(in srgb, var(--color-nier-dark) 6%, transparent) 4px
+    ),
+    linear-gradient(
+      transparent 0,
+      transparent 3px,
+      color-mix(in srgb, var(--color-nier-dark) 6%, transparent) 4px
+    );
   background-size: 4px 4px;
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
+  box-shadow: var(--shadow-nier-lift-strong);
+}
+.nier-select-menu--portal {
+  z-index: var(--z-dropdown);
 }
 .nier-select-option {
   display: block;
@@ -1135,7 +1682,7 @@ body {
   background: transparent;
   color: var(--color-nier-dark);
   font-family: inherit;
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   font-weight: 400;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1169,59 +1716,84 @@ body {
   @apply border border-nier-dark bg-nier-bg/70 p-4 rounded-none;
 }
 .nier-data-block-title {
-  @apply text-[10px] uppercase tracking-widest font-bold text-nier-dark/80 mb-3 border-b border-dotted border-nier-dark/40 pb-1;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px dotted color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
 }
 
 /* Landing */
 .nier-landing {
-  justify-content: space-between;
+  justify-content: center;
   padding-top: 0;
   padding-bottom: 0;
   user-select: none;
 }
-.nier-landing-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 0 0.75rem;
-  font-size: 0.8rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font-weight: 500;
-  opacity: 0.8;
-}
 .nier-landing-main {
   flex: 1;
   display: flex;
-  align-items: center;
-  max-width: 44rem;
+  align-items: flex-start;
+  max-width: 52rem;
   margin: 0 auto;
   width: 100%;
-  padding: 2rem 0;
+  /* Clear air under the top ornament so the display title is never flush/cropped */
+  padding: clamp(3.5rem, 14vh, 8rem) 0 2.5rem;
+  overflow: visible;
+}
+/* No clip-path entrance — reduced-motion can leave wipe-in stuck and block clicks. */
+.nier-landing-panel {
+  width: 100%;
+  overflow: visible;
+}
+.nier-landing .nier-rail {
+  overflow: visible;
+}
+.nier-landing-brand-wrap {
+  overflow: visible;
+  padding-block: 0.25rem 0.1rem;
 }
 .nier-landing-brand {
-  font-size: clamp(2.8rem, 8vw, 4.75rem);
-  line-height: 0.95;
+  display: block;
+  font-size: clamp(3.75rem, 12vw, 6.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
   margin: 0;
+  /* Explicit headroom — large display glyphs were clipping under tight line boxes */
+  padding: 0.35em 0.5em 0.25em 0.06em;
+  overflow: visible;
+  text-shadow: none;
+}
+.nier-landing-brand.nier-title-ghost::before {
+  top: 0.35em;
+  right: 0.5em;
+  bottom: 0.25em;
+  left: 0.06em;
+  transform: translate(0.3rem, 0.3rem);
 }
 .nier-landing-sub {
   display: block;
-  margin-top: 0.35rem;
+  margin-top: 0.45rem;
   color: var(--color-nier-orange-ink);
   font-weight: 500;
   letter-spacing: 0.35rem;
-  font-size: 0.55em;
+  font-size: 0.5em;
+  line-height: 1.2;
   text-shadow: none;
 }
 .nier-landing-copy {
   margin-top: 1.5rem;
-  font-size: 0.9rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  line-height: 1.7;
+  font-size: var(--text-label);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  line-height: 1.55;
   color: var(--color-nier-dark-muted);
-  max-width: 32rem;
+  max-width: 36rem;
   font-weight: 400;
+  text-wrap: pretty;
 }
 .nier-landing-cta {
   margin-top: 2rem;
@@ -1231,7 +1803,96 @@ body {
 }
 .nier-landing-cta .nier-btn {
   padding: 1rem 2.4rem;
-  font-size: 0.95rem;
+  font-size: var(--text-body);
+}
+.nier-landing-steps {
+  margin: 0.85rem 0 0;
+  max-width: 36rem;
+  font-size: var(--text-caption);
+  color: var(--color-nier-dark-muted);
+  line-height: 1.5;
+}
+.nier-landing-skip {
+  margin-top: 1rem;
+  display: inline-block;
+  background: none;
+  border: none;
+  padding: 0.35rem 0;
+  font-family: var(--font-nier);
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  color: var(--color-nier-dark-muted);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+.nier-landing-skip:hover,
+.nier-landing-skip:focus-visible {
+  color: var(--color-nier-orange);
+  outline: none;
+}
+
+.nier-coach-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs, 0.5rem);
+  margin-bottom: var(--space-sm, 0.75rem);
+}
+.nier-coach-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  background: var(--surface-nier-faint, color-mix(in srgb, var(--color-nier-dark) 4%, transparent));
+}
+.nier-coach-strip--watch {
+  border-color: color-mix(in srgb, var(--color-nier-orange) 45%, var(--color-nier-dark));
+}
+.nier-coach-copy {
+  margin: 0;
+  flex: 1 1 16rem;
+  font-size: var(--text-caption);
+  color: var(--color-nier-dark);
+}
+.nier-coach-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs, 0.4rem);
+}
+.nier-coach-actions .nier-btn {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+.nier-empty-cell {
+  padding: 2rem 1rem !important;
+}
+.nier-empty-state {
+  max-width: 28rem;
+  margin: 0 auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+.nier-empty-title {
+  margin: 0;
+  font-size: var(--text-body);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--color-nier-dark);
+}
+.nier-empty-copy {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--color-nier-dark-muted);
+  line-height: 1.5;
+  text-wrap: pretty;
 }
 
 @media (max-width: 640px) {
@@ -1267,7 +1928,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 12px;
-  font-size: 14px;
+  font-size: var(--text-label);
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -1277,7 +1938,7 @@ body {
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--text-dense);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   border-bottom: 2px solid var(--color-nier-dark);
@@ -1294,7 +1955,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 
 .report-date {
@@ -1302,62 +1963,18 @@ body {
   color: var(--color-nier-orange-ink);
 }
 
-.report-back {
-  position: relative;
-  z-index: 1;
-  border: 1px solid var(--color-nier-dark);
-  border-left: none;
-  border-right: none;
-  background: var(--color-nier-light);
-  color: var(--color-nier-dark);
-  padding: 0.55rem 1rem;
-  min-height: 2.5rem;
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-weight: 500;
-  cursor: pointer;
-  font-family: inherit;
-  overflow: hidden;
-}
-
-.report-back::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  left: 0;
-  top: 2px;
-  bottom: 2px;
-  width: 0;
-  background: var(--color-nier-dark);
-  transition: width 0.2s ease;
-}
-
-.report-back:hover,
-.report-back:focus-visible {
-  background: transparent;
-  color: var(--color-nier-bg);
-  border-color: var(--color-nier-dark);
-  outline: 2px solid var(--color-nier-dark);
-  outline-offset: 2px;
-}
-
-.report-back:hover::before,
-.report-back:focus-visible::before {
-  width: 100%;
-}
 
 .report-title-bar {
   display: grid;
   grid-template-columns: auto 1fr 220px;
   border: 2px solid var(--color-nier-dark);
   margin: 10px 0 6px;
-  background: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
-  box-shadow: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
+  background: var(--surface-nier-title);
+  box-shadow: var(--shadow-nier-lift-soft);
 }
 
 .report-ticker {
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: var(--text-display);
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1368,7 +1985,12 @@ body {
   color: var(--color-nier-orange-ink);
   white-space: nowrap;
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-shadow: 0.15rem 0.15rem 0 color-mix(in srgb, var(--color-nier-dark) 22%, transparent);
+  text-wrap: balance;
 }
 
 .report-title-center {
@@ -1382,11 +2004,15 @@ body {
 }
 
 .report-name-inline {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  opacity: 0.85;
-  line-height: 1.3;
+  font-size: var(--text-ui);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+  color: var(--color-nier-dark-muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-wrap: pretty;
 }
 
 .report-checklist-preview {
@@ -1406,20 +2032,20 @@ body {
 }
 
 .report-score-badge {
-  font-size: 10px;
-  font-weight: 800;
+  font-size: var(--text-caption);
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 2px 8px;
   border: 1px solid var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-light) 70%, transparent);
+  background: var(--surface-nier-raised);
 }
 
 .report-ratio-strip {
-  font-size: 10px;
+  font-size: var(--text-caption);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.8;
+  color: var(--color-nier-dark-muted);
 }
 
 .report-check-cols-preview {
@@ -1429,15 +2055,15 @@ body {
 }
 
 .report-check-row-compact {
-  font-size: 9px;
+  font-size: var(--text-caption);
   gap: 4px;
   margin-bottom: 2px;
 }
 
 .report-check-row-compact .report-check-box {
-  width: 14px;
-  height: 14px;
-  font-size: 9px;
+  width: 1rem;
+  height: 1rem;
+  font-size: var(--text-caption);
 }
 
 .report-mcap {
@@ -1449,25 +2075,25 @@ body {
 }
 
 .report-mcap-label {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
 .report-mcap-value {
-  font-size: 1.75rem;
-  font-weight: 800;
+  font-size: var(--text-stat);
+  font-weight: 700;
   line-height: 1.1;
 }
 
 /* removed: company name now lives in report-title-center */
 
 .report-section-label {
-  font-size: 0.875rem;
+  font-size: var(--text-label);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-ui);
   border-bottom: 1px solid var(--color-nier-dark);
   margin: 0 0 8px;
   padding-bottom: 2px;
@@ -1503,12 +2129,15 @@ body {
 .report-chart-card {
   border: 1px solid var(--color-nier-dark);
   padding: 6px 8px 4px;
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
   min-height: 160px;
+  contain: layout paint;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
 }
 
 .report-chart-title {
-  font-size: 0.8rem;
+  font-size: var(--text-ui);
   font-weight: 600;
   margin-bottom: 2px;
   text-transform: uppercase;
@@ -1521,7 +2150,7 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--color-nier-dark-muted);
-  font-size: 0.85rem;
+  font-size: var(--text-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -1529,11 +2158,11 @@ body {
 .report-side-panel {
   border: 1px solid var(--color-nier-dark);
   padding: 10px;
-  background: color-mix(in srgb, var(--color-nier-light) 45%, transparent);
+  background: var(--surface-nier-panel-mid);
 }
 
 .report-panel-title {
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 700;
   margin-bottom: 8px;
   text-transform: uppercase;
@@ -1547,7 +2176,7 @@ body {
 .report-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--text-caption);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1573,7 +2202,7 @@ body {
 
 .report-note {
   margin-top: 10px;
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--color-nier-dark-muted);
   line-height: 1.35;
   letter-spacing: 0.04em;
@@ -1605,7 +2234,7 @@ body {
   gap: 8px;
   border: 1px solid var(--color-nier-dark);
   padding: 8px;
-  background: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
+  background: var(--surface-nier-panel-soft);
 }
 
 .report-dividends-block .report-chart-card {
@@ -1619,7 +2248,7 @@ body {
 }
 
 .report-div-table {
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .report-div-table th,
@@ -1629,14 +2258,14 @@ body {
 }
 
 .report-div-pref td {
-  opacity: 0.7;
+  color: var(--color-nier-dark-muted);
 }
 
 .report-check-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--text-caption);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 4px;
@@ -1649,7 +2278,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -1667,7 +2296,7 @@ body {
 .report-check-na {
   background: var(--color-nier-gray);
   color: var(--color-nier-dark);
-  font-size: 8px;
+  font-size: var(--text-caption);
 }
 
 /* Data quality panel */
@@ -1686,13 +2315,13 @@ body {
   align-items: baseline;
   gap: 8px 14px;
   margin-bottom: 6px;
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .dq-status {
-  font-weight: 800;
+  font-weight: 700;
   padding: 1px 6px;
   border: 1px solid var(--color-nier-dark);
 }
@@ -1709,41 +2338,60 @@ body {
 
 .dq-meta,
 .dq-compact-counts {
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  opacity: 0.85;
+  color: var(--color-nier-dark-muted);
 }
 
 .dq-muted {
-  opacity: 0.65;
+  color: var(--color-nier-dark-muted);
   margin-top: 2px;
 }
 
 .dq-missing,
-.dq-missing-line {
-  font-size: 0.7rem;
+.dq-missing-line,
+.dq-warn,
+.dq-warn-line {
+  font-size: var(--text-caption);
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--color-nier-orange-ink, var(--color-nier-orange));
   margin: 0.35rem 0 0.25rem;
 }
 
-.dq-compact-counts.dq-missing {
+.dq-missing,
+.dq-missing-line {
+  color: var(--color-nier-orange-ink, var(--color-nier-orange));
+}
+
+.dq-warn,
+.dq-warn-line {
+  color: color-mix(in srgb, var(--color-nier-dark) 78%, var(--color-nier-orange-ink));
+}
+
+.dq-compact-counts.dq-missing,
+.dq-compact-counts.dq-warn {
   margin-top: 2px;
+}
+
+.dq-provenance-line {
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin: 0.25rem 0 0.35rem;
 }
 
 .dq-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
   margin-bottom: 6px;
 }
 
 .dq-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
 }
 
 .dq-table th,
@@ -1757,7 +2405,7 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  font-size: 0.65rem;
+  font-size: var(--text-caption);
   background: color-mix(in srgb, var(--color-nier-dark) 8%, transparent);
 }
 
@@ -1773,30 +2421,30 @@ body {
   height: 1.25rem;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 700;
   border: 1px solid var(--color-nier-dark);
 }
 
 .dq-empty {
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.65;
+  color: var(--color-nier-dark-muted);
   padding: 8px 0;
 }
 
 .dq-footnote {
   margin: 4px 0 0;
-  font-size: 0.7rem;
-  opacity: 0.7;
+  font-size: var(--text-caption);
+  color: var(--color-nier-dark-muted);
   line-height: 1.35;
 }
 
 .report-valuation {
   border: 1px solid var(--color-nier-dark);
   padding: 10px;
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1808,15 +2456,15 @@ body {
 }
 
 .report-yield-label {
-  font-size: 10px;
+  font-size: var(--text-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .report-yield-value {
-  font-size: 1.6rem;
-  font-weight: 800;
+  font-size: var(--text-stat);
+  font-weight: 700;
   margin: 4px 0 8px;
   color: var(--color-nier-orange-ink);
 }
@@ -1826,7 +2474,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -1834,8 +2482,8 @@ body {
 
 .report-cover-badge {
   padding: 6px 18px;
-  font-size: 14px;
-  font-weight: 800;
+  font-size: var(--text-label);
+  font-weight: 700;
   border: 1px solid var(--color-nier-dark);
 }
 
@@ -1845,8 +2493,9 @@ body {
 }
 
 .report-cover-badge.status-weak {
-  background: var(--color-nier-orange);
+  background: color-mix(in srgb, var(--color-nier-orange) 38%, var(--color-nier-bg));
   color: var(--color-nier-dark);
+  border-color: var(--color-nier-orange-ink);
 }
 
 .report-cover-badge.status-na {
@@ -1861,50 +2510,45 @@ body {
 
 .report-news--compact {
   margin: 0;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-light) 35%, transparent);
-  box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
-}
-
-.report-news--compact .report-section-label {
-  font-size: 0.75rem;
-  margin-bottom: 0.5rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 
 .report-news--compact .report-news-list {
-  max-height: 16rem;
+  max-height: 9rem;
   overflow: auto;
 }
 
 .report-news--compact .report-news-link {
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
 }
 
 .report-news--compact .report-news-status {
   padding: 0.55rem 0.65rem;
-  font-size: 0.65rem;
+  font-size: var(--text-caption);
 }
 
 .report-news-note {
   margin: 0 0 0.65rem;
-  font-size: 0.7rem;
-  opacity: 0.75;
+  font-size: var(--text-caption);
+  color: var(--color-nier-dark-muted);
 }
 
 .report-news-status {
   border: 1px dashed color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
   padding: 0.85rem 1rem;
-  font-size: 0.75rem;
+  font-size: var(--text-dense);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--color-nier-dark-muted);
 }
 
 .report-news-error-detail {
   text-transform: none;
   letter-spacing: 0.02em;
-  opacity: 0.85;
+  color: var(--color-nier-dark);
 }
 
 .report-news-list {
@@ -1912,7 +2556,7 @@ body {
   margin: 0;
   padding: 0;
   border: 1px solid var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
+  background: var(--surface-nier-panel);
 }
 
 .report-news-item {
@@ -1927,7 +2571,7 @@ body {
 .report-news-link {
   color: var(--color-nier-orange-ink);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--text-label);
   letter-spacing: 0.04em;
   text-decoration: none;
   line-height: 1.35;
@@ -1941,10 +2585,10 @@ body {
 
 .report-news-meta {
   margin-top: 0.3rem;
-  font-size: 0.65rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.65;
+  color: var(--color-nier-dark-muted);
 }
 
 .report-news-show-all {
@@ -1954,7 +2598,7 @@ body {
   background: transparent;
   color: var(--color-nier-dark);
   font: inherit;
-  font-size: 0.7rem;
+  font-size: var(--text-caption);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   cursor: pointer;
@@ -1976,18 +2620,21 @@ body {
 .report-note-block {
   border: 1px dashed var(--color-nier-gray);
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: var(--text-caption);
   min-height: 36px;
-  background: color-mix(in srgb, var(--color-nier-light) 30%, transparent);
+  background: var(--surface-nier-faint);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .report-disclaimer {
-  font-size: 9px;
+  font-size: var(--text-caption);
   color: var(--color-nier-dark-muted);
-  line-height: 1.4;
-  letter-spacing: 0.03em;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  max-width: 72ch;
+  text-wrap: pretty;
 }
 
 @media (max-width: 1024px) {

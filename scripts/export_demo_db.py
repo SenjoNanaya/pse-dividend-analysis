@@ -14,12 +14,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Diverse slice: industrial/property/banks/incomplete for UI smoke paths.
+# BPI is the dense bank showcase (multi-year loans/deposits/NII/NPL/ACL).
 DEFAULT_TICKERS = (
     "AB",  # incomplete
     "AC",
     "ALI",  # proper ROIC / dense FS
-    "AUB",  # bank equity ROIC
+    "AUB",  # bank equity return (thinner FS)
     "BDO",
+    "BPI",  # bank checklist + PDF bank fields
     "CNVRG",
     "DMC",
     "GLO",

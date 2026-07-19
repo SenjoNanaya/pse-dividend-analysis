@@ -8,6 +8,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { summarizeBalanceSheet } from '../lib/chartSummary';
+import { CHART_SURFACE, CHART_TYPE, METRIC_COLORS } from '../lib/nierPalette';
 
 function formatLabel(v) {
   if (v == null || Number.isNaN(v)) return '';
@@ -32,79 +34,81 @@ export default function BalanceSheetChart({
         || d.equity != null
         || d.cash != null,
     );
-  const axis = '#4d493e';
-  const grid = '#bab5a1';
+  const { axis, grid, tooltipBg } = CHART_SURFACE;
+  const summary = summarizeBalanceSheet(title, data);
 
   return (
-    <div className="report-chart-card report-chart-card--wide">
-      <div className="report-chart-title">{title}</div>
+    <div className="report-chart-card report-chart-card--wide" role="img" aria-label={summary}>
+      <div className="report-chart-title" aria-hidden="true">{title}</div>
       {!hasData ? (
-        <div className="report-chart-empty">No data</div>
+        <div className="report-chart-empty" aria-hidden="true">No data</div>
       ) : (
-        <ResponsiveContainer width="100%" height={height}>
-          <ComposedChart data={data} margin={{ top: 16, right: 12, left: -8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
-            <XAxis
-              dataKey="year"
-              tick={{ fontSize: 16, fill: axis }}
-              axisLine={{ stroke: axis }}
-              tickLine={false}
-            />
-            <YAxis
-              tick={{ fontSize: 14, fill: axis }}
-              axisLine={false}
-              tickLine={false}
-              width={52}
-              tickFormatter={(v) => formatLabel(Number(v))}
-            />
-            <Tooltip
-              formatter={(value, name) => [formatLabel(Number(value)), name]}
-              contentStyle={{
-                fontSize: 17,
-                borderRadius: 0,
-                border: `1px solid ${axis}`,
-                background: '#dcd8c0',
-                color: axis,
-              }}
-            />
-            <Legend
-              wrapperStyle={{ fontSize: 15, color: axis }}
-              iconType="square"
-            />
-            <Bar
-              dataKey="assets"
-              name="Assets"
-              fill="#7d8a6a"
-              stroke={axis}
-              strokeWidth={0.5}
-              maxBarSize={22}
-            />
-            <Bar
-              dataKey="cash"
-              name="Cash"
-              fill="#6a8a8a"
-              stroke={axis}
-              strokeWidth={0.5}
-              maxBarSize={22}
-            />
-            <Bar
-              dataKey="liabilities"
-              name="Liabilities"
-              fill="#8a6a5a"
-              stroke={axis}
-              strokeWidth={0.5}
-              maxBarSize={22}
-            />
-            <Bar
-              dataKey="equity"
-              name="Equity (A−L)"
-              fill="#9a9278"
-              stroke={axis}
-              strokeWidth={0.5}
-              maxBarSize={22}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
+        <div aria-hidden="true">
+          <ResponsiveContainer width="100%" height={height}>
+            <ComposedChart data={data} margin={{ top: 16, right: 12, left: -8, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={grid} />
+              <XAxis
+                dataKey="year"
+                tick={{ fontSize: CHART_TYPE.tick, fill: axis }}
+                axisLine={{ stroke: axis }}
+                tickLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: CHART_TYPE.tickSm, fill: axis }}
+                axisLine={false}
+                tickLine={false}
+                width={52}
+                tickFormatter={(v) => formatLabel(Number(v))}
+              />
+              <Tooltip
+                formatter={(value, name) => [formatLabel(Number(value)), name]}
+                contentStyle={{
+                  fontSize: CHART_TYPE.tooltip,
+                  borderRadius: 0,
+                  border: `1px solid ${axis}`,
+                  background: tooltipBg,
+                  color: axis,
+                }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: CHART_TYPE.legend, color: axis }}
+                iconType="square"
+              />
+              <Bar
+                dataKey="assets"
+                name="Assets"
+                fill={METRIC_COLORS.assets}
+                stroke={axis}
+                strokeWidth={0.5}
+                maxBarSize={22}
+              />
+              <Bar
+                dataKey="cash"
+                name="Cash"
+                fill={METRIC_COLORS.cash}
+                stroke={axis}
+                strokeWidth={0.5}
+                maxBarSize={22}
+              />
+              <Bar
+                dataKey="liabilities"
+                name="Liabilities"
+                fill={METRIC_COLORS.liabilities}
+                stroke={axis}
+                strokeWidth={0.5}
+                maxBarSize={22}
+              />
+              <Bar
+                dataKey="equity"
+                name="Equity (A−L)"
+                fill={METRIC_COLORS.equity}
+                stroke={axis}
+                strokeWidth={0.5}
+                maxBarSize={22}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </div>
   );

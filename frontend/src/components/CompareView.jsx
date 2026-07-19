@@ -7,9 +7,7 @@ import {
   formatPrice,
   marketCapTier,
 } from '../lib/metrics';
-
-const API_BASE = 'http://127.0.0.1:8000/api/companies';
-const jsonHeaders = { Accept: 'application/json' };
+import { API_BASE, jsonHeaders } from '../lib/api';
 
 function formatRatio(v, digits = 2) {
   if (v == null || !Number.isFinite(v)) return '—';
@@ -77,48 +75,50 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
       return undefined;
     }
 
-    let cancelled = false;
+    const ac = new AbortController();
     setStatus('loading');
     setError(null);
 
     Promise.all(
       picks.map((p) =>
-        fetch(`${API_BASE}/${p.id}/`, { headers: jsonHeaders }).then(async (res) => {
+        fetch(`${API_BASE}/${p.id}/`, { headers: jsonHeaders, signal: ac.signal }).then(async (res) => {
           if (!res.ok) throw new Error(`API ${res.status}: ${res.statusText}`);
           return res.json();
         }),
       ),
     )
       .then((companies) => {
-        if (cancelled) return;
         setReports(companies.map((c) => buildReport(c, thresholds)));
         setStatus('ready');
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (err.name === 'AbortError') return;
         setError(err.message || 'Failed to load comparison');
         setStatus('error');
       });
 
-    return () => { cancelled = true; };
+    return () => ac.abort();
   }, [pickKey, thresholdKey]); // eslint-disable-line react-hooks/exhaustive-deps -- pick ids + thresholds
 
   if (status === 'loading' || status === 'idle') {
     return (
-      <div className="compare-page compare-loading" role="status" aria-live="polite">
-        LOADING_COMPARE_MATRIX...
-      </div>
+      <main id="main-content" className="compare-page compare-loading" role="status" aria-live="polite">
+        Loading comparison…
+      </main>
     );
   }
 
   if (status === 'error') {
     return (
-      <div className="compare-page compare-loading" role="alert">
-        <p>COMPARE_RETRIEVAL_FAILURE: {error}</p>
+      <main id="main-content" className="compare-page compare-loading" role="alert">
+        <p className="nier-msg-plain">Couldn&apos;t load the comparison.</p>
+        <p className="nier-ink-muted text-xs normal-case tracking-normal mt-2 max-w-md text-center">
+          Make sure Edge is running, then go back and try again.
+        </p>
         <button type="button" className="nier-btn mt-4" onClick={onBack}>
-          &lt; REGISTRY
+          Back to list
         </button>
-      </div>
+      </main>
     );
   }
 
@@ -147,11 +147,11 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
   const showCharts = panel === 'charts' || panel === 'both';
 
   return (
-    <div className="compare-page animate-fade-in">
+    <main id="main-content" className="compare-page animate-fade-in">
       <header className="compare-topbar">
         <div className="flex items-center gap-3 flex-wrap">
           <button type="button" className="nier-btn" onClick={onBack}>
-            &lt; REGISTRY
+            Back to list
           </button>
           <h1 className="nier-title compare-heading">
             COMPARE_MATRIX
@@ -303,7 +303,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                     ))}
                   </tr>
                   <tr>
-                    <th scope="row">ROIC</th>
+                    <th scope="row">ROIC / Cap. return</th>
                     {reports.map((r, i) => (
                       <CompareCell key={r.companyId} best={i === roicBest}>
                         {formatPct(r.ratios.roic)}
@@ -311,7 +311,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                           <span className="compare-roic-mode"> (proxy)</span>
                         ) : null}
                         {r.roicMeta?.mode === 'equity' ? (
-                          <span className="compare-roic-mode"> (equity)</span>
+                          <span className="compare-roic-mode"> (capital return)</span>
                         ) : null}
                         {r.roicMeta?.mode === 'na' ? (
                           <span className="compare-roic-mode"> (n/a)</span>
@@ -403,7 +403,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
               </table>
             </div>
             <p className="compare-note">
-              Orange highlight = best among the set (lowest P/E, P/B &amp; liabilities CAGR; highest yield, ROE, proper ROIC only, checks, other CAGRs).
+              Orange marks the best in each row (lowest P/E, P/B, and liabilities growth; highest yield, ROE, proper ROIC, checks, and other growth rates).
               Proxy ROIC and bank equity-capital returns are shown for context but cannot win the ROIC highlight.
               Click a ticker to open its full record.
             </p>
@@ -439,6 +439,6 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
           </section>
         )}
       </div>
-    </div>
+    </main>
   );
 }
