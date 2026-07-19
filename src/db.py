@@ -69,10 +69,16 @@ def init_db():
             cost_of_sales REAL,
             interest_expense REAL,
             other_expenses REAL,
+            total_loans REAL,
+            total_deposits REAL,
+            npl REAL,
+            net_interest_income REAL,
+            allowance_for_credit_losses REAL,
             statement_scope TEXT,
             current_ratio REAL,
             quick_ratio REAL,
             outstanding_shares REAL,
+            field_sources TEXT,
             UNIQUE(company_id, fiscal_year),
             FOREIGN KEY(company_id) REFERENCES companies(id)
         )
@@ -160,7 +166,13 @@ def _ensure_financial_columns(cursor):
         ("cost_of_sales", "REAL"),
         ("interest_expense", "REAL"),
         ("other_expenses", "REAL"),
+        ("total_loans", "REAL"),
+        ("total_deposits", "REAL"),
+        ("npl", "REAL"),
+        ("net_interest_income", "REAL"),
+        ("allowance_for_credit_losses", "REAL"),
         ("statement_scope", "TEXT"),
+        ("field_sources", "TEXT"),
     ):
         if col not in existing:
             cursor.execute(f"ALTER TABLE financials ADD COLUMN {col} {decl}")
@@ -180,38 +192,73 @@ def _ensure_dividend_columns(cursor):
 
 def get_or_create_company(conn, symbol, name, sector=None, subsector=None, snapshot=None):
     """Get company ID, or insert if not exists. Optional market snapshot updates."""
+    from src.parser import sanitize_pe_for_persist
+
     cursor = conn.cursor()
     snapshot = snapshot or {}
-    
+    pe_write = (
+        sanitize_pe_for_persist(snapshot.get("pe_ratio"))
+        if "pe_ratio" in snapshot
+        else None
+    )
+
     cursor.execute("SELECT id FROM companies WHERE symbol = ?", (symbol,))
     row = cursor.fetchone()
     
     if row:
         company_id = row[0]
-        cursor.execute("""
-            UPDATE companies 
-            SET name = ?, sector = ?, subsector = COALESCE(?, subsector), ticker = COALESCE(?, ticker),
-                market_cap = COALESCE(?, market_cap),
-                outstanding_shares = COALESCE(?, outstanding_shares),
-                last_traded_price = COALESCE(?, last_traded_price),
-                pe_ratio = COALESCE(?, pe_ratio),
-                pb_ratio = COALESCE(?, pb_ratio),
-                roe = COALESCE(?, roe),
-                last_updated = CURRENT_TIMESTAMP 
-            WHERE id = ?
-        """, (
-            name,
-            sector,
-            subsector,
-            snapshot.get("ticker"),
-            snapshot.get("market_cap"),
-            snapshot.get("outstanding_shares"),
-            snapshot.get("last_traded_price"),
-            snapshot.get("pe_ratio"),
-            snapshot.get("pb_ratio"),
-            snapshot.get("roe"),
-            company_id,
-        ))
+        # pe_ratio: when key is present, assign including NULL (clear absurd PE).
+        # Other snapshot fields keep COALESCE so partial updates do not wipe them.
+        if "pe_ratio" in snapshot:
+            cursor.execute("""
+                UPDATE companies
+                SET name = ?, sector = ?, subsector = COALESCE(?, subsector),
+                    ticker = COALESCE(?, ticker),
+                    market_cap = COALESCE(?, market_cap),
+                    outstanding_shares = COALESCE(?, outstanding_shares),
+                    last_traded_price = COALESCE(?, last_traded_price),
+                    pe_ratio = ?,
+                    pb_ratio = COALESCE(?, pb_ratio),
+                    roe = COALESCE(?, roe),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                name,
+                sector,
+                subsector,
+                snapshot.get("ticker"),
+                snapshot.get("market_cap"),
+                snapshot.get("outstanding_shares"),
+                snapshot.get("last_traded_price"),
+                pe_write,
+                snapshot.get("pb_ratio"),
+                snapshot.get("roe"),
+                company_id,
+            ))
+        else:
+            cursor.execute("""
+                UPDATE companies
+                SET name = ?, sector = ?, subsector = COALESCE(?, subsector),
+                    ticker = COALESCE(?, ticker),
+                    market_cap = COALESCE(?, market_cap),
+                    outstanding_shares = COALESCE(?, outstanding_shares),
+                    last_traded_price = COALESCE(?, last_traded_price),
+                    pb_ratio = COALESCE(?, pb_ratio),
+                    roe = COALESCE(?, roe),
+                    last_updated = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (
+                name,
+                sector,
+                subsector,
+                snapshot.get("ticker"),
+                snapshot.get("market_cap"),
+                snapshot.get("outstanding_shares"),
+                snapshot.get("last_traded_price"),
+                snapshot.get("pb_ratio"),
+                snapshot.get("roe"),
+                company_id,
+            ))
         conn.commit()
         return company_id
 
@@ -230,12 +277,22 @@ def get_or_create_company(conn, symbol, name, sector=None, subsector=None, snaps
         snapshot.get("market_cap"),
         snapshot.get("outstanding_shares"),
         snapshot.get("last_traded_price"),
-        snapshot.get("pe_ratio"),
+        sanitize_pe_for_persist(snapshot.get("pe_ratio")),
         snapshot.get("pb_ratio"),
         snapshot.get("roe"),
     ))
     conn.commit()
     return cursor.lastrowid
+
+
+def sanitize_roic_for_persist(roic):
+    """Null absurd ROIC fractions (|ROIC| > 100%)."""
+    from src.utils import safe_float
+
+    v = safe_float(roic)
+    if v is None or abs(v) > 1.0:
+        return None
+    return v
 
 
 def update_company_screening(
@@ -267,7 +324,7 @@ def update_company_screening(
         check_evaluable_total,
         1 if info_incomplete else 0,
         div_yield,
-        roic,
+        sanitize_roic_for_persist(roic),
         debt_to_equity,
         check_struct_pass,
         check_struct_eval,
@@ -293,6 +350,11 @@ _FINANCIAL_COLUMNS = (
     "cost_of_sales",
     "interest_expense",
     "other_expenses",
+    "total_loans",
+    "total_deposits",
+    "npl",
+    "net_interest_income",
+    "allowance_for_credit_losses",
     "statement_scope",
     "current_ratio",
     "quick_ratio",
@@ -303,15 +365,19 @@ _FINANCIAL_COLUMNS = (
 def insert_financials(conn, company_id, fiscal_year, data):
     """
     Insert or replace financial data for a company/year.
-    data: revenue, net_income, eps, book_value, total_assets, total_liabilities,
-          stockholders_equity, total_current_liabilities,
-          cash_and_equivalents, operating_income, income_before_tax,
-          income_tax_expense, gross_profit, ga_expense, cost_of_sales,
-          interest_expense, other_expenses, statement_scope,
-          current_ratio, quick_ratio, outstanding_shares
+    Optional data['field_sources']: dict or JSON string of column → source tag.
     """
+    from src.field_sources import sources_to_json
+
     cursor = conn.cursor()
-    
+    raw_sources = data.get("field_sources")
+    if isinstance(raw_sources, dict):
+        sources_json = sources_to_json(raw_sources)
+    elif isinstance(raw_sources, str) and raw_sources.strip():
+        sources_json = raw_sources
+    else:
+        sources_json = None
+
     cursor.execute("""
         INSERT OR REPLACE INTO financials (
             company_id, fiscal_year, revenue, net_income, eps, 
@@ -319,9 +385,12 @@ def insert_financials(conn, company_id, fiscal_year, data):
             total_current_liabilities,
             cash_and_equivalents, operating_income, income_before_tax,
             income_tax_expense, gross_profit, ga_expense,
-            cost_of_sales, interest_expense, other_expenses, statement_scope,
-            current_ratio, quick_ratio, outstanding_shares
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            cost_of_sales, interest_expense, other_expenses,
+            total_loans, total_deposits, npl, net_interest_income,
+            allowance_for_credit_losses,
+            statement_scope,
+            current_ratio, quick_ratio, outstanding_shares, field_sources
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         company_id,
         fiscal_year,
@@ -342,19 +411,40 @@ def insert_financials(conn, company_id, fiscal_year, data):
         data.get('cost_of_sales'),
         data.get('interest_expense'),
         data.get('other_expenses'),
+        data.get('total_loans'),
+        data.get('total_deposits'),
+        data.get('npl'),
+        data.get('net_interest_income'),
+        data.get('allowance_for_credit_losses'),
         data.get('statement_scope'),
         data.get('current_ratio'),
         data.get('quick_ratio'),
         data.get('outstanding_shares'),
+        sources_json,
     ))
     conn.commit()
 
 
-def fill_financial_nulls(conn, company_id, fiscal_year, data, *, commit=True):
+def fill_financial_nulls(
+    conn,
+    company_id,
+    fiscal_year,
+    data,
+    *,
+    commit=True,
+    treat_zero_as_null=(),
+):
     """
     Update only columns that are currently NULL for company_id/fiscal_year.
+    Tags filled columns as source ``backfill`` in field_sources.
     Returns list of column names that were filled.
+
+    ``treat_zero_as_null``: columns (e.g. ``eps``) where stored 0.0 is treated
+    as missing so EDGE-rounded placeholders can be replaced.
     """
+    from src.field_sources import merge_source_tags, sources_from_json, sources_to_json
+
+    zero_null = frozenset(treat_zero_as_null or ())
     cursor = conn.cursor()
     row = cursor.execute(
         """
@@ -372,13 +462,34 @@ def fill_financial_nulls(conn, company_id, fiscal_year, data, *, commit=True):
     for col in _FINANCIAL_COLUMNS:
         if col not in data or data[col] is None:
             continue
-        if existing.get(col) is not None:
-            continue
+        cur_val = existing.get(col)
+        if cur_val is not None:
+            if col not in zero_null:
+                continue
+            try:
+                if float(cur_val) != 0.0:
+                    continue
+            except (TypeError, ValueError):
+                continue
         sets.append(f"{col} = ?")
         vals.append(data[col])
         filled.append(col)
-    if not sets:
+    if not filled:
         return []
+    sources = merge_source_tags(
+        sources_from_json(existing.get("field_sources")),
+        filled,
+        "backfill",
+    )
+    # Prefer derived/pdf tags from the merge row when present
+    metric_sources = data.get("_field_sources") or {}
+    for col in filled:
+        tag = metric_sources.get(col)
+        if tag in ("derived", "pdf", "html"):
+            sources[col] = tag
+    sources_json = sources_to_json(sources)
+    sets.append("field_sources = ?")
+    vals.append(sources_json)
     vals.extend([company_id, fiscal_year])
     cursor.execute(
         f"""
@@ -391,6 +502,135 @@ def fill_financial_nulls(conn, company_id, fiscal_year, data, *, commit=True):
     if commit:
         conn.commit()
     return filled
+
+
+# Absolute peso columns that may be rewritten when HTML was stored in thousands.
+_SCALE_LIFT_COLUMNS = (
+    "revenue",
+    "net_income",
+    "total_assets",
+    "total_liabilities",
+    "stockholders_equity",
+    "total_current_liabilities",
+    "operating_income",
+    "income_before_tax",
+    "income_tax_expense",
+    "gross_profit",
+    "ga_expense",
+    "cost_of_sales",
+    "interest_expense",
+    "other_expenses",
+    "total_loans",
+    "total_deposits",
+    "npl",
+    "net_interest_income",
+    "allowance_for_credit_losses",
+)
+
+
+def overwrite_financial_scale_lift(
+    conn, company_id, fiscal_year, data, *, commit=True
+):
+    """
+    Overwrite absolute columns when the merge lifted HTML thousands → pesos
+    (new total_assets ≈ existing × 1000). Returns columns rewritten.
+    """
+    from src.field_sources import merge_source_tags, sources_from_json, sources_to_json
+
+    cursor = conn.cursor()
+    row = cursor.execute(
+        """
+        SELECT * FROM financials
+        WHERE company_id = ? AND fiscal_year = ?
+        """,
+        (company_id, fiscal_year),
+    ).fetchone()
+    if not row:
+        return []
+    existing = dict(row)
+    try:
+        old_a = float(existing["total_assets"]) if existing.get("total_assets") is not None else None
+        new_a = float(data["total_assets"]) if data.get("total_assets") is not None else None
+    except (TypeError, ValueError, KeyError):
+        return []
+    if old_a is None or new_a is None or old_a <= 0:
+        return []
+    ratio = new_a / old_a
+    if ratio < 800.0 or ratio > 1200.0:
+        return []
+
+    sets = []
+    vals = []
+    updated = []
+    for col in _SCALE_LIFT_COLUMNS:
+        if col not in data or data[col] is None:
+            continue
+        try:
+            new_v = float(data[col])
+        except (TypeError, ValueError):
+            continue
+        old_v = existing.get(col)
+        if old_v is not None:
+            try:
+                if abs(float(old_v) - new_v) / max(abs(new_v), 1.0) < 1e-9:
+                    continue
+            except (TypeError, ValueError):
+                pass
+        sets.append(f"{col} = ?")
+        vals.append(new_v)
+        updated.append(col)
+    if not updated:
+        return []
+    sources = merge_source_tags(
+        sources_from_json(existing.get("field_sources")),
+        updated,
+        "scale_lift",
+    )
+    sources_json = sources_to_json(sources)
+    sets.append("field_sources = ?")
+    vals.append(sources_json)
+    vals.extend([company_id, fiscal_year])
+    cursor.execute(
+        f"""
+        UPDATE financials
+        SET {", ".join(sets)}
+        WHERE company_id = ? AND fiscal_year = ?
+        """,
+        vals,
+    )
+    if commit:
+        conn.commit()
+    return updated
+
+
+def delete_out_of_range_financials(conn, company_id=None):
+    """
+    Delete financial rows with fiscal_year < 1995 or > current calendar year.
+    Returns number of deleted rows.
+    """
+    from datetime import date
+
+    cursor = conn.cursor()
+    max_year = date.today().year
+    if company_id is None:
+        cur = cursor.execute(
+            """
+            DELETE FROM financials
+            WHERE fiscal_year < 1995 OR fiscal_year > ?
+            """,
+            (max_year,),
+        )
+    else:
+        cur = cursor.execute(
+            """
+            DELETE FROM financials
+            WHERE company_id = ?
+              AND (fiscal_year < 1995 OR fiscal_year > ?)
+            """,
+            (company_id, max_year),
+        )
+    conn.commit()
+    return cur.rowcount
 
 def insert_dividend(conn, company_id, dividend_data):
     """

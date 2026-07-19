@@ -18,6 +18,7 @@ MODULES = (
     "test_parser_fixtures",
     "test_screening_guards",
     "test_roic_pipeline",
+    "test_demo_bank",
     "test_news_feed",
 )
 

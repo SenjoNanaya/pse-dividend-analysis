@@ -1,5 +1,5 @@
 """Live checklist rescoring helpers for the company list API."""
-from django.db.models import Case, F, IntegerField, Value, When
+from django.db.models import Case, F, IntegerField, Q, Value, When
 
 from src.report_metrics import DEFAULT_THRESHOLDS, normalize_thresholds
 
@@ -21,7 +21,10 @@ def thresholds_from_request(request):
 def annotate_live_checks(queryset, thresholds=None):
     """
     Annotate live_check_pass / live_check_eval using stored structural counts
-    plus PE/PB/D/E/ROE from company columns vs request thresholds.
+    plus PE/PB/ROE (and D/E for non-financials) vs request thresholds.
+
+    Banks/insurance: structural mid includes NII; D/E is not on their checklist,
+    so it must not inflate the directory fraction vs the detail preview.
     """
     t = normalize_thresholds(thresholds)
     pe_max = t["pe_max"]
@@ -100,9 +103,29 @@ def annotate_live_checks(queryset, thresholds=None):
         output_field=IntegerField(),
     )
 
+    # Match src.filing_triage.is_financial_sector (sector/subsector hints).
+    fin_q = (
+        Q(sector__icontains="financial")
+        | Q(subsector__icontains="bank")
+        | Q(subsector__icontains="insurance")
+        | Q(subsector__icontains="other financial")
+    )
+    industrial_pass = struct_pass + pe_pass + pb_pass + de_pass + roe_pass
+    industrial_eval = struct_eval + pe_eval + pb_eval + de_eval + roe_eval
+    bank_pass = struct_pass + pe_pass + pb_pass + roe_pass
+    bank_eval = struct_eval + pe_eval + pb_eval + roe_eval
+
     return queryset.annotate(
-        live_check_pass=struct_pass + pe_pass + pb_pass + de_pass + roe_pass,
-        live_check_eval=struct_eval + pe_eval + pb_eval + de_eval + roe_eval,
+        live_check_pass=Case(
+            When(fin_q, then=bank_pass),
+            default=industrial_pass,
+            output_field=IntegerField(),
+        ),
+        live_check_eval=Case(
+            When(fin_q, then=bank_eval),
+            default=industrial_eval,
+            output_field=IntegerField(),
+        ),
     )
 
 

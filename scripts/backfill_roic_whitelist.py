@@ -1,7 +1,8 @@
 """
-Backfill OI / GA / cash for non-financial companies via PDF-first whitelist merge.
+Backfill OI / GA / cash for non-financials, and bank FS fields for financials.
 
-Targets companies where latest (or any) year needs PDF OI or has tiny/missing cash.
+Non-financials: years needing PDF OI or missing/tiny cash.
+Banks: years missing loans / deposits / NPL / NII / credit-loss allowance.
 Uses cached PDFs under data/filings/{cmpy_id} by default; optional live EDGE fetch.
 
 Usage (from repo root):
@@ -21,7 +22,11 @@ sys.path.insert(0, ROOT)
 
 from src import db
 from src import parser
-from src.filing_triage import is_financial_sector, select_attachments_to_download
+from src.filing_triage import (
+    is_banks_subsector,
+    is_financial_sector,
+    select_attachments_to_download,
+)
 from src.pdf_roic_extract import (
     extract_roic_metrics_from_pdf_bytes,
     extract_roic_metrics_from_pdf_path,
@@ -31,7 +36,13 @@ from src.pdf_roic_extract import (
 from src.report_metrics import (
     compute_screening_summary,
     needs_pdf_cash,
+    needs_pdf_eps,
     needs_pdf_oi,
+)
+from src.field_sources import (
+    merge_source_tags,
+    sources_from_json,
+    sources_to_json,
 )
 from src.scale_guard import harmonize_yearly_pl_scale, repair_thousand_scale_jumps
 from src.scraper import PSEScraper
@@ -47,6 +58,12 @@ _UPDATE_COLS = (
     "other_expenses",
     "income_before_tax",
     "income_tax_expense",
+    "eps",
+    "total_loans",
+    "total_deposits",
+    "npl",
+    "net_interest_income",
+    "allowance_for_credit_losses",
     "statement_scope",
 )
 
@@ -60,7 +77,9 @@ def _load_html_seed(cur, company_id: int) -> dict[int, dict]:
                total_current_liabilities, cash_and_equivalents,
                operating_income, income_before_tax, income_tax_expense,
                gross_profit, ga_expense, cost_of_sales, interest_expense,
-               other_expenses, statement_scope
+               other_expenses, total_loans, total_deposits, npl,
+               net_interest_income, allowance_for_credit_losses,
+               outstanding_shares, statement_scope, field_sources
         FROM financials WHERE company_id=?
         """,
         (company_id,),
@@ -69,11 +88,39 @@ def _load_html_seed(cur, company_id: int) -> dict[int, dict]:
         y = int(row.pop("fiscal_year"))
         if row.get("revenue") is not None:
             row["gross_revenue"] = row["revenue"]
+        src = sources_from_json(row.pop("field_sources", None))
+        if src:
+            row["_field_sources"] = src
         html_seed[y] = row
     return html_seed
 
 
+_BANK_FILL_COLS = (
+    "total_loans",
+    "total_deposits",
+    "npl",
+    "net_interest_income",
+    "allowance_for_credit_losses",
+)
+
+
+def _needs_bank_fields(fins: list[dict]) -> bool:
+    """True when any year is missing a bank field or pdf provenance tag."""
+    for f in fins:
+        src = sources_from_json(f.get("field_sources"))
+        for col in _BANK_FILL_COLS:
+            if f.get(col) is None:
+                return True
+            if src.get(col) != "pdf":
+                return True
+    return False
+
+
 def _companies_needing_oi_or_cash(cur, tickers: list[str] | None) -> list[dict]:
+    """
+    Non-financials with OI/cash gaps, plus banks missing loans/deposits/NPL/NII.
+    Explicit --tickers still respects sector rules (banks only for bank fields).
+    """
     rows = cur.execute(
         """
         SELECT c.id, c.ticker, c.name, c.symbol AS cmpy_id, c.sector, c.subsector,
@@ -86,17 +133,19 @@ def _companies_needing_oi_or_cash(cur, tickers: list[str] | None) -> list[dict]:
     out = []
     for r in rows:
         d = dict(r)
-        if is_financial_sector(d.get("sector"), d.get("subsector")):
-            continue
         if tickers and (d.get("ticker") or "").upper() not in tickers:
             continue
+        financial = is_financial_sector(d.get("sector"), d.get("subsector"))
+        deposit_bank = is_banks_subsector(d.get("sector"), d.get("subsector"))
         fins = [
             dict(x)
             for x in cur.execute(
                 """
                 SELECT fiscal_year, revenue, net_income, operating_income,
-                       income_before_tax, gross_profit, ga_expense,
-                       total_assets, cash_and_equivalents
+                       income_before_tax, gross_profit, ga_expense, eps,
+                       total_assets, cash_and_equivalents, outstanding_shares,
+                       total_loans, total_deposits, npl, net_interest_income,
+                       allowance_for_credit_losses, field_sources
                 FROM financials WHERE company_id=? ORDER BY fiscal_year
                 """,
                 (d["id"],),
@@ -104,7 +153,16 @@ def _companies_needing_oi_or_cash(cur, tickers: list[str] | None) -> list[dict]:
         ]
         if not fins:
             continue
-        if any(needs_pdf_oi(f) or needs_pdf_cash(f) for f in fins):
+        if deposit_bank:
+            if _needs_bank_fields(fins):
+                out.append(d)
+            continue
+        if financial:
+            # Brokers / other FI: equity ROIC path; no bank-field backfill
+            continue
+        if any(
+            needs_pdf_oi(f) or needs_pdf_cash(f) or needs_pdf_eps(f) for f in fins
+        ):
             out.append(d)
     return out
 
@@ -244,6 +302,11 @@ def main() -> None:
         action="store_true",
         help="Only re-extract local data/filings/{cmpy_id} PDFs",
     )
+    ap.add_argument(
+        "--derive-eps-only",
+        action="store_true",
+        help="Skip PDF OCR; fill zero/null EPS from NI/shares only",
+    )
     ap.add_argument("--max-pdfs", type=int, default=8)
     args = ap.parse_args()
 
@@ -253,16 +316,39 @@ def main() -> None:
     conn = db.get_connection()
     cur = conn.cursor()
     targets = _companies_needing_oi_or_cash(cur, tickers)
+    if args.derive_eps_only:
+        filtered = []
+        for co in targets:
+            fins = [
+                dict(x)
+                for x in cur.execute(
+                    """
+                    SELECT net_income, eps, outstanding_shares
+                    FROM financials WHERE company_id=?
+                    """,
+                    (co["id"],),
+                ).fetchall()
+            ]
+            if any(needs_pdf_eps(f) for f in fins):
+                filtered.append(co)
+        targets = filtered
     if args.limit and args.limit > 0:
         targets = targets[: args.limit]
 
+    n_bank = sum(
+        1
+        for co in targets
+        if is_banks_subsector(co.get("sector"), co.get("subsector"))
+    )
     print(
-        f"OI/cash-gap non-financials: {len(targets)}"
+        f"Whitelist targets: {len(targets)}"
+        f" (banks needing loans/NII/etc: {n_bank})"
         f"{' (cached PDFs only)' if args.cached_pdfs_only else ''}"
+        f"{' [derive-eps-only]' if args.derive_eps_only else ''}"
         f"{' [dry-run]' if args.dry_run else ''}"
     )
 
-    scraper = None if args.cached_pdfs_only else PSEScraper()
+    scraper = None if (args.cached_pdfs_only or args.derive_eps_only) else PSEScraper()
     touched = 0
     field_updates = 0
 
@@ -273,10 +359,13 @@ def main() -> None:
             "sector": co.get("sector"),
             "subsector": co.get("subsector"),
             "ticker": ticker,
+            "outstanding_shares": co.get("outstanding_shares"),
         }
         try:
             html_seed = _load_html_seed(cur, co["id"])
-            if args.cached_pdfs_only:
+            if args.derive_eps_only:
+                yearly = fill_html_whitelist(html_seed, {}, company=company_meta)
+            elif args.cached_pdfs_only:
                 pdf_yearly = _extract_from_cached_pdfs(cmpy_id)
                 yearly = fill_html_whitelist(html_seed, pdf_yearly, company=company_meta)
             else:
@@ -301,7 +390,9 @@ def main() -> None:
                     """
                     SELECT operating_income, ga_expense, cash_and_equivalents,
                            gross_profit, cost_of_sales, interest_expense,
-                           other_expenses
+                           other_expenses, total_loans, total_deposits, npl,
+                           net_interest_income, allowance_for_credit_losses,
+                           eps, field_sources
                     FROM financials WHERE company_id=? AND fiscal_year=?
                     """,
                     (co["id"], year),
@@ -316,6 +407,14 @@ def main() -> None:
                     "cost_of_sales",
                     "interest_expense",
                     "other_expenses",
+                    "eps",
+                    # Bank BS/IS lines: allow overwrite when re-extract corrects
+                    # interest-income / note false positives (e.g. BPI loans).
+                    "total_loans",
+                    "total_deposits",
+                    "npl",
+                    "net_interest_income",
+                    "allowance_for_credit_losses",
                 )
                 updates = {}
                 for col in _UPDATE_COLS:
@@ -323,26 +422,75 @@ def main() -> None:
                     if new is None:
                         continue
                     old = existing[col] if col in existing.keys() else None
-                    if old is None or (col in replaceable and old != new):
-                        if old is None or col in replaceable:
-                            try:
-                                if old is not None and abs(float(old) - float(new)) < 1e-3:
-                                    continue
-                            except (TypeError, ValueError):
-                                pass
-                            updates[col] = new
-                if not updates:
+                    replace_ok = old is None or (
+                        col in replaceable and old != new
+                    )
+                    if col == "eps" and old is not None:
+                        try:
+                            # EDGE placeholder zeros are replaceable
+                            if float(old) == 0.0:
+                                replace_ok = True
+                        except (TypeError, ValueError):
+                            pass
+                    if not replace_ok:
+                        continue
+                    if old is None or col in replaceable or (
+                        col == "eps" and replace_ok
+                    ):
+                        try:
+                            if old is not None and abs(float(old) - float(new)) < 1e-9:
+                                continue
+                        except (TypeError, ValueError):
+                            pass
+                        updates[col] = new
+                metric_sources = metrics.get("_field_sources") or {}
+                existing_sources = sources_from_json(existing["field_sources"])
+                # Stamp pdf provenance for bank fields already equal to PDF extract
+                # (earlier runs filled values without field_sources).
+                src_updates = [
+                    col for col in updates if col != "statement_scope"
+                ]
+                for col in _BANK_FILL_COLS:
+                    new = metrics.get(col)
+                    if new is None or col in src_updates:
+                        continue
+                    old = existing[col] if col in existing.keys() else None
+                    if old is None:
+                        continue
+                    try:
+                        if abs(float(old) - float(new)) >= 1e-3:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+                    if existing_sources.get(col) != "pdf":
+                        src_updates.append(col)
+                if not updates and not src_updates:
                     continue
                 company_hits += 1
                 field_updates += len(updates)
-                bits = ", ".join(f"{k}={updates[k]:.6g}" if isinstance(updates[k], float) else f"{k}={updates[k]}" for k in updates)
-                print(f"  {ticker} FY{year}: {bits}")
+                if updates:
+                    bits = ", ".join(
+                        f"{k}={updates[k]:.6g}"
+                        if isinstance(updates[k], float)
+                        else f"{k}={updates[k]}"
+                        for k in updates
+                    )
+                    print(f"  {ticker} FY{year}: {bits}")
+                elif src_updates:
+                    print(f"  {ticker} FY{year}: sources {','.join(src_updates)}")
                 if args.dry_run:
                     continue
-                sets = ", ".join(f"{c}=?" for c in updates)
+                sources = merge_source_tags(existing_sources, src_updates, "pdf")
+                for col in src_updates:
+                    tag = metric_sources.get(col)
+                    if tag:
+                        sources[col] = tag
+                updates_with_src = dict(updates)
+                updates_with_src["field_sources"] = sources_to_json(sources)
+                sets = ", ".join(f"{c}=?" for c in updates_with_src)
                 cur.execute(
                     f"UPDATE financials SET {sets} WHERE company_id=? AND fiscal_year=?",
-                    (*updates.values(), co["id"], year),
+                    (*updates_with_src.values(), co["id"], year),
                 )
 
             if company_hits:

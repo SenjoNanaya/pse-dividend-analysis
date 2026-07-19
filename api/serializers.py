@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from src.report_metrics import incomplete_reasons, no_share_dilution_pass
+from src.field_sources import sources_from_json
+from src.report_metrics import data_warnings, incomplete_reasons, no_share_dilution_pass
 from src.utils import safe_float
 
 from .models import Company, Financial, Dividend
@@ -24,6 +25,12 @@ def _financial_dicts(obj):
                 'total_liabilities': f.total_liabilities,
                 'stockholders_equity': f.stockholders_equity,
                 'outstanding_shares': f.outstanding_shares,
+                'cash_and_equivalents': f.cash_and_equivalents,
+                'total_loans': f.total_loans,
+                'total_deposits': f.total_deposits,
+                'npl': f.npl,
+                'net_interest_income': f.net_interest_income,
+                'allowance_for_credit_losses': f.allowance_for_credit_losses,
             }
         )
     return rows
@@ -35,6 +42,8 @@ class CompanySerializer(serializers.ModelSerializer):
     check_pass_count = serializers.SerializerMethodField()
     check_evaluable_total = serializers.SerializerMethodField()
     dilution_pass = serializers.SerializerMethodField()
+    incomplete_reasons = serializers.SerializerMethodField()
+    data_warnings = serializers.SerializerMethodField()
 
     class Meta:
         model = Company
@@ -46,7 +55,22 @@ class CompanySerializer(serializers.ModelSerializer):
             'check_pass_count', 'check_evaluable_total', 'info_incomplete',
             'check_struct_pass', 'check_struct_eval',
             'passes_screen', 'cap_tier', 'dilution_pass',
+            'incomplete_reasons', 'data_warnings',
         ]
+
+    def _company_dict(self, obj):
+        return {
+            'name': obj.name,
+            'ticker': obj.ticker,
+            'sector': obj.sector,
+            'subsector': obj.subsector,
+        }
+
+    def get_incomplete_reasons(self, obj):
+        return incomplete_reasons(self._company_dict(obj), _financial_dicts(obj))
+
+    def get_data_warnings(self, obj):
+        return data_warnings(self._company_dict(obj), _financial_dicts(obj))
 
     def _live_pass(self, obj):
         if hasattr(obj, 'live_check_pass') and obj.live_check_pass is not None:
@@ -121,6 +145,8 @@ class CompanySerializer(serializers.ModelSerializer):
 
 
 class FinancialSerializer(serializers.ModelSerializer):
+    field_sources = serializers.SerializerMethodField()
+
     class Meta:
         model = Financial
         fields = [
@@ -129,9 +155,16 @@ class FinancialSerializer(serializers.ModelSerializer):
             'total_current_liabilities',
             'cash_and_equivalents', 'operating_income', 'income_before_tax',
             'income_tax_expense', 'gross_profit', 'ga_expense',
-            'cost_of_sales', 'interest_expense', 'other_expenses', 'statement_scope',
+            'cost_of_sales', 'interest_expense', 'other_expenses',
+            'total_loans', 'total_deposits', 'npl', 'net_interest_income',
+            'allowance_for_credit_losses',
+            'statement_scope',
             'current_ratio', 'quick_ratio', 'outstanding_shares',
+            'field_sources',
         ]
+
+    def get_field_sources(self, obj):
+        return sources_from_json(getattr(obj, 'field_sources', None))
 
 
 class DividendSerializer(serializers.ModelSerializer):
@@ -146,17 +179,9 @@ class DividendSerializer(serializers.ModelSerializer):
 class CompanyDetailSerializer(CompanySerializer):
     financials = FinancialSerializer(many=True, source='financial_set')
     dividends = DividendSerializer(many=True, source='dividend_set')
-    incomplete_reasons = serializers.SerializerMethodField()
 
     class Meta(CompanySerializer.Meta):
         fields = CompanySerializer.Meta.fields + [
             'financials',
             'dividends',
-            'incomplete_reasons',
         ]
-
-    def get_incomplete_reasons(self, obj):
-        return incomplete_reasons(
-            {'name': obj.name, 'ticker': obj.ticker},
-            _financial_dicts(obj),
-        )

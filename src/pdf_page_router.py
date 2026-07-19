@@ -15,6 +15,9 @@ _POSITION_HINTS = (
     "statement of financial position",
     "statements of financial condition",
     "statement of financial condition",
+    # Common PH bank AFS title (BPI, etc.)
+    "statements of condition",
+    "statement of condition",
 )
 _INCOME_HINTS = (
     "statements of comprehensive income",
@@ -58,6 +61,8 @@ _REJECT_SUBSTRINGS = (
 
 # Bare peso-style balances (tabular FS), not "Php29.8 billion" MD&A prose
 _LARGE_AMOUNT = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3}){2,}(?:\.\d+)?")
+# Note tables in millions often use one thousands-group (e.g. 56,866)
+_MID_AMOUNT = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 
 # MD&A / narrative density
 _NARRATIVE_CUES = (
@@ -76,6 +81,11 @@ _MIN_FALLBACK_SCORE = 6
 
 def count_large_amounts(text: str) -> int:
     return len(_LARGE_AMOUNT.findall(text or ""))
+
+
+def count_mid_amounts(text: str) -> int:
+    """Comma-grouped amounts including millions-scale note tables (56,866)."""
+    return len(_MID_AMOUNT.findall(text or ""))
 
 
 def is_boilerplate_page(text: str) -> bool:
@@ -127,10 +137,23 @@ def position_substance_score(text: str) -> int:
     low = (text or "").lower()
     if len(low.strip()) < 80:
         return 0
+    # MD&A variance / YoY comparison tables share FS titles but are not the BS
+    if re.search(r"increase\s*/\s*\(?\s*decrease\s*\)?", low):
+        return 0
+    pct_hits = len(re.findall(r"-?\d+[.,]\d+\s*%", text or ""))
     score = 0
     title = _title_strength(text, _POSITION_HINTS)
     score += title
-    if "cash and cash equivalents" in low or "cash & cash equivalents" in low:
+    if (
+        "cash and cash equivalents" in low
+        or "cash & cash equivalents" in low
+        or "cash and cash equivalent" in low
+        or "cash on hand and in banks" in low
+        or "cash in banks and on hand" in low
+    ):
+        score += 2
+    # Bank BS often leads with cash items / due from BSP rather than industrial cash
+    if "cash and other cash items" in low or "due from bangko sentral" in low:
         score += 2
     if "total assets" in low or "total current assets" in low:
         score += 2
@@ -140,6 +163,11 @@ def position_substance_score(text: str) -> int:
         score += 1
     if re.search(r"\bassets\b", low) and re.search(r"\bliabilit", low):
         score += 1
+    # Bank balance-sheet anchors (loan book / deposit liabilities)
+    if "loans and advances" in low or "loans and receivables" in low:
+        score += 2
+    if "deposit liabilities" in low or "due to depositors" in low:
+        score += 2
     bare = count_large_amounts(text)
     if bare >= 8:
         score += 3
@@ -148,6 +176,8 @@ def position_substance_score(text: str) -> int:
     elif bare >= 2:
         score += 1
     score -= _narrative_penalty(text)
+    if pct_hits >= 3:
+        score -= 4
     # Cash-flow only pages
     if _CF_HINT in low and title == 0 and "financial position" not in low:
         score -= 3
@@ -357,6 +387,59 @@ def find_statement_pages(
     }
 
 
+_BANK_AQ_HINTS = (
+    "non-performing loans",
+    "total non-performing",
+    "non-performing",
+    "nonperforming",
+    "gross non-performing",
+    "allowance for credit losses",
+    "allowance for impairment",
+    "allowance for probable losses",
+    "credit-impaired",
+    "past due loans",
+    "impaired loans",
+    "stage 3",
+)
+
+
+def find_bank_asset_quality_pages(
+    pages: Iterable[tuple[int, str]],
+    *,
+    max_pages: int = 8,
+) -> list[int]:
+    """
+    Note / BSP pages with NPL stock or loan-loss allowance tables.
+    Used when statement pages alone miss bank credit-quality lines.
+    """
+    hits: list[tuple[int, int]] = []  # (score, page)
+    for page_no, text in pages:
+        if is_boilerplate_page(text):
+            continue
+        low = (text or "").lower()
+        if len(low.strip()) < 80:
+            continue
+        if not any(h in low for h in _BANK_AQ_HINTS):
+            continue
+        bare = count_large_amounts(text)
+        mid = count_mid_amounts(text)
+        if bare < 1 and mid < 4:
+            continue
+        score = min(bare, 6) + min(mid // 2, 4)
+        if "total non-performing" in low or "non-performing loans" in low:
+            score += 4
+        if "as reported to the bsp" in low:
+            score += 3
+        if "allowance for credit losses" in low or "allowance for impairment" in low:
+            score += 2
+        if "loan loss" in low or "credit-impaired" in low:
+            score += 1
+        if score >= 5:
+            hits.append((score, page_no))
+    hits.sort(reverse=True)
+    return sorted({p for _, p in hits[:max_pages]})
+
+
 def find_cash_flow_pages(
     pages: Iterable[tuple[int, str]],
     *,
@@ -384,7 +467,11 @@ def find_cash_flow_pages(
                 "at end of the year",
                 "at end of period",
                 "end of year",
+                "end of the year",
+                "end of period",
                 "ending cash",
+                ", end of year",
+                ", ending",
                 "cash and cash equivalents",
             )
         )

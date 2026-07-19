@@ -14,6 +14,59 @@ export const DEFAULT_THRESHOLDS = {
   deMax: 2,
 };
 
+/** Bank structural floors — keep in sync with src/report_metrics.py */
+export const BANK_LDR_MAX = 1.05;
+export const BANK_NPL_RATIO_MAX = 0.05;
+export const BANK_EQUITY_ASSET_MIN = 0.08;
+export const BANK_NIM_PROXY_MIN = 0.015;
+
+function yoyGrowthPass(latest, prev, key) {
+  if (!latest || !prev) return null;
+  const a = safeNum(latest[key]);
+  const b = safeNum(prev[key]);
+  if (a == null || b == null || b === 0) return null;
+  return a > b;
+}
+
+function ldrPass(latest, maxLdr = BANK_LDR_MAX) {
+  if (!latest) return null;
+  const loans = safeNum(latest.total_loans);
+  const deposits = safeNum(latest.total_deposits);
+  if (loans == null || deposits == null || deposits <= 0) return null;
+  return loans / deposits < maxLdr;
+}
+
+function nplRatioPass(latest, maxRatio = BANK_NPL_RATIO_MAX) {
+  if (!latest) return null;
+  const npl = safeNum(latest.npl);
+  const loans = safeNum(latest.total_loans);
+  if (npl == null || loans == null || loans <= 0) return null;
+  return npl / loans < maxRatio;
+}
+
+function equityAssetPass(latest, company, minRatio = BANK_EQUITY_ASSET_MIN) {
+  if (!latest) return null;
+  const assets = safeNum(latest.total_assets);
+  const equity = equityForRoe(latest, company);
+  if (assets == null || equity == null || assets <= 0) return null;
+  return equity / assets >= minRatio;
+}
+
+function niiOrNimPass(latest, prev, nimMin = BANK_NIM_PROXY_MIN) {
+  if (!latest) return null;
+  const niiL = safeNum(latest.net_interest_income);
+  if (niiL == null) return null;
+  const niiP = prev ? safeNum(prev.net_interest_income) : null;
+  if (niiP != null && niiP !== 0) return niiL > niiP;
+  const assetsL = safeNum(latest.total_assets);
+  if (assetsL == null || assetsL <= 0) return null;
+  const assetsP = prev ? safeNum(prev.total_assets) : null;
+  const avgA =
+    assetsP != null && assetsP > 0 ? (assetsL + assetsP) / 2 : assetsL;
+  if (avgA <= 0) return null;
+  return niiL / avgA >= nimMin;
+}
+
 /** P&L % growth only when both periods are profitable (mirror report_metrics.PL_*) */
 const ZERO_AS_MISSING_KEYS = new Set(['revenue', 'eps']);
 const PL_MIN_ABS_PREV = {
@@ -58,11 +111,15 @@ export function debtToEquityPass(de, deMax) {
   return d < cap;
 }
 
-/** Exact-zero revenue/EPS are placeholders, not prints. */
+/** Exact-zero revenue/EPS are placeholders, not prints; negative revenue is scrap. */
 export function metricValue(v, key) {
   const n = safeNum(v);
   if (n == null) return null;
-  if (ZERO_AS_MISSING_KEYS.has(key) && n === 0) return null;
+  if (key === 'revenue' || key === 'gross_revenue') {
+    if (n <= 0) return null;
+  } else if (ZERO_AS_MISSING_KEYS.has(key) && n === 0) {
+    return null;
+  }
   return n;
 }
 
@@ -417,6 +474,60 @@ function yearHasCoreFiling(f) {
   return true;
 }
 
+/** Mirror src.filing_triage.is_banks_subsector. */
+export function isBanksSubsector(company) {
+  const sub = String(company?.subsector || '').toLowerCase();
+  if (sub.includes('bank')) return true;
+  const sec = String(company?.sector || '').toLowerCase().trim();
+  return sec === 'banks' || sec === 'bank';
+}
+
+/** Mirror src.filing_triage.is_etf_sector. */
+export function isEtfSector(company) {
+  const blob = `${company?.sector || ''} ${company?.subsector || ''}`.toLowerCase();
+  return blob.includes('etf');
+}
+
+/** Mirror src.filing_triage.all_years_zero_revenue. */
+export function allYearsZeroRevenue(financials = []) {
+  const rows = Array.isArray(financials) ? financials : [];
+  if (!rows.length) return false;
+  for (const f of rows) {
+    if (metricValue(f?.revenue, 'revenue') != null) return false;
+  }
+  return true;
+}
+
+/** Mirror src.filing_triage.waives_revenue_completeness. */
+export function waivesRevenueCompleteness(company, financials = []) {
+  if (isBanksSubsector(company) || isEtfSector(company)) return true;
+  return allYearsZeroRevenue(financials);
+}
+
+function latestCoreFieldMissing(latest, key) {
+  if (key === 'revenue' || key === 'eps') {
+    let missing = metricValue(latest?.[key], key) == null;
+    if (
+      missing
+      && key === 'eps'
+      && safeNum(latest?.net_income) != null
+      && Math.abs(Number(latest.net_income)) < 1000
+    ) {
+      return false;
+    }
+    return missing;
+  }
+  return safeNum(latest?.[key]) == null;
+}
+
+function waiveRevenueIncomplete(company, financials, latest) {
+  if (!latestCoreFieldMissing(latest, 'revenue')) return false;
+  for (const key of ['net_income', 'total_assets', 'eps', 'book_value']) {
+    if (latestCoreFieldMissing(latest, key)) return false;
+  }
+  return waivesRevenueCompleteness(company, financials);
+}
+
 /** Mirror src.report_metrics.incomplete_reasons for the report panel. */
 export function incompleteReasons(company, financials = []) {
   const reasons = [];
@@ -429,9 +540,10 @@ export function incompleteReasons(company, financials = []) {
     return reasons;
   }
   const latest = fin[fin.length - 1];
-  for (const [key, zeroMissing] of INCOMPLETE_REQUIRED) {
-    const v = zeroMissing ? metricValue(latest[key], key) : safeNum(latest[key]);
-    if (v == null) reasons.push(key);
+  const waiveRev = waiveRevenueIncomplete(company, financials, latest);
+  for (const [key] of INCOMPLETE_REQUIRED) {
+    if (key === 'revenue' && waiveRev) continue;
+    if (latestCoreFieldMissing(latest, key)) reasons.push(key);
   }
   return reasons;
 }
@@ -451,6 +563,130 @@ export function isDenseYoYSeries(series, { minPoints = 3, minFill = 0.5 } = {}) 
   const span = ys[ys.length - 1] - ys[0] + 1;
   if (span <= 0) return false;
   return pts.length / span >= minFill;
+}
+
+/** Mirror src.report_metrics.data_warnings (soft; does not flip incomplete). */
+export function dataWarnings(company, financials = []) {
+  const warnings = [];
+  const fin = completeFinancials(financials);
+  if (fin.length < 3) warnings.push('thin_core_history');
+  let shareYears = 0;
+  for (const f of fin) {
+    const shares = safeNum(f.outstanding_shares);
+    if (shares != null && shares > 0) shareYears += 1;
+  }
+  if (shareYears < 2) warnings.push('thin_shares_series');
+  if (fin.length && waiveRevenueIncomplete(company, financials, fin[fin.length - 1])) {
+    warnings.push('no_commercial_revenue');
+  }
+  if (isFinancialSector(company)) {
+    warnings.push('industrial_roic_na_use_equity');
+  } else if (fin.length) {
+    const latest = fin[fin.length - 1];
+    if (safeNum(latest.cash_and_equivalents) == null) {
+      warnings.push('no_cash_for_proper_roic');
+    }
+  }
+  return warnings;
+}
+
+/** Soft warnings that surface as WARN on the registry (not bank-expected noise). */
+export const REGISTRY_ACTIONABLE_WARNINGS = [
+  'thin_core_history',
+  'thin_shares_series',
+  'no_cash_for_proper_roic',
+  'no_commercial_revenue',
+];
+
+/** Human labels for data_warnings / incomplete tokens in the DQ panel. */
+export function formatDataWarning(token) {
+  const map = {
+    industrial_roic_na_use_equity:
+      'Industrial ROIC not used; showing equity capital return instead',
+    no_cash_for_proper_roic: 'Cash missing — using a simpler return figure',
+    thin_shares_series: 'Few years of share count on file',
+    thin_core_history: 'Few years of filings on file',
+    no_commercial_revenue: 'No commercial revenue line (shell / ETF / bank)',
+    incomplete: 'Marked incomplete',
+    no_identity: 'Company identity missing',
+    no_financials: 'No usable financial figures',
+    revenue: 'Missing revenue',
+    net_income: 'Missing net income',
+    total_assets: 'Missing total assets',
+    eps: 'Missing EPS',
+    book_value: 'Missing book value',
+  };
+  return map[token] || String(token);
+}
+
+/**
+ * Registry table DQ chip from list payload.
+ * Hard incomplete wins; else actionable soft warnings → WARN; else ok.
+ */
+export function registryDataStatus(company) {
+  const incomplete = Boolean(company?.info_incomplete);
+  const reasons = Array.isArray(company?.incomplete_reasons)
+    ? company.incomplete_reasons.map(String)
+    : [];
+  const warnings = Array.isArray(company?.data_warnings)
+    ? company.data_warnings.map(String)
+    : [];
+  const actionable = warnings.filter((w) =>
+    REGISTRY_ACTIONABLE_WARNINGS.includes(w),
+  );
+
+  if (incomplete) {
+    const tokens = reasons.length > 0 ? reasons : ['incomplete'];
+    return {
+      level: 'bad',
+      label: 'INCOMPLETE',
+      title: tokens.map(formatDataWarning).join('; '),
+    };
+  }
+  if (actionable.length > 0) {
+    return {
+      level: 'warn',
+      label: 'WARN',
+      title: actionable.map(formatDataWarning).join('; '),
+    };
+  }
+  return { level: 'ok', label: '—', title: 'Complete' };
+}
+
+const SOURCE_LETTER = {
+  html: 'H',
+  pdf: 'P',
+  backfill: 'B',
+  derived: 'D',
+  form17c: 'F',
+  disclosure: 'R',
+};
+
+/** Map coverage column → field_sources key(s). */
+function sourceForCoverage(f, colKey) {
+  const src = f?.field_sources;
+  if (!src || typeof src !== 'object') return null;
+  if (colKey === 'cash') return src.cash_and_equivalents || null;
+  if (colKey === 'oi') return src.operating_income || null;
+  if (colKey === 'shares') return src.outstanding_shares || null;
+  if (colKey === 'equity') return src.stockholders_equity || null;
+  if (colKey === 'cl') return src.total_current_liabilities || null;
+  if (colKey === 'loans') return src.total_loans || null;
+  if (colKey === 'deposits') return src.total_deposits || null;
+  if (colKey === 'nii') return src.net_interest_income || null;
+  if (colKey === 'npl') return src.npl || null;
+  if (colKey === 'allowance') return src.allowance_for_credit_losses || null;
+  if (colKey === 'core') {
+    return (
+      src.revenue
+      || src.net_income
+      || src.total_assets
+      || src.eps
+      || src.book_value
+      || null
+    );
+  }
+  return null;
 }
 
 function presentField(f, key) {
@@ -473,23 +709,33 @@ function presentField(f, key) {
 
 /**
  * Field-level coverage + screening readiness from a company detail payload.
- * Uses stored financials (HTML + PDF fill-nulls already merged); no provenance.
  */
 export function buildDataQuality(company, report = null) {
   const financials = sortedFinancials(company?.financials || []);
+  const bankMode = isFinancialSector(company);
   const coverage = financials.map((f) => {
     const year = String(f.fiscal_year);
-    return {
-      year,
+    const cols = {
       core: yearHasCoreFiling(f),
       cash: presentField(f, 'cash_and_equivalents'),
       cl: presentField(f, 'total_current_liabilities'),
       oi: presentField(f, 'operating_income'),
+      loans: presentField(f, 'total_loans'),
+      deposits: presentField(f, 'total_deposits'),
+      nii: presentField(f, 'net_interest_income'),
+      npl: presentField(f, 'npl'),
+      allowance: presentField(f, 'allowance_for_credit_losses'),
       equity: presentField(f, 'stockholders_equity'),
       shares: presentField(f, 'outstanding_shares'),
       ga: presentField(f, 'ga_expense'),
       gp: presentField(f, 'gross_profit'),
     };
+    const sources = {};
+    for (const key of Object.keys(cols)) {
+      const tag = sourceForCoverage(f, key);
+      if (tag) sources[key] = tag;
+    }
+    return { year, ...cols, sources };
   });
 
   const summary = {
@@ -497,6 +743,11 @@ export function buildDataQuality(company, report = null) {
     withCash: coverage.filter((r) => r.cash).length,
     withCl: coverage.filter((r) => r.cl).length,
     withOi: coverage.filter((r) => r.oi).length,
+    withLoans: coverage.filter((r) => r.loans).length,
+    withDeposits: coverage.filter((r) => r.deposits).length,
+    withNii: coverage.filter((r) => r.nii).length,
+    withNpl: coverage.filter((r) => r.npl).length,
+    withAllowance: coverage.filter((r) => r.allowance).length,
     withShares: coverage.filter((r) => r.shares).length,
     withEquity: coverage.filter((r) => r.equity).length,
   };
@@ -522,13 +773,42 @@ export function buildDataQuality(company, report = null) {
       ? Boolean(company.info_incomplete)
       : reasons.length > 0;
 
+  const warnings =
+    Array.isArray(company?.data_warnings) && company.data_warnings.length
+      ? company.data_warnings.map(String)
+      : dataWarnings(company, financials);
+
+  const provenanceHints = coverage
+    .filter((r) => r.sources && Object.keys(r.sources).length)
+    .slice(-3)
+    .map((r) => {
+      const bits = [];
+      if (bankMode) {
+        if (r.sources.loans) bits.push(`loans:${r.sources.loans}`);
+        if (r.sources.deposits) bits.push(`dep:${r.sources.deposits}`);
+        if (r.sources.nii) bits.push(`nii:${r.sources.nii}`);
+        if (r.sources.npl) bits.push(`npl:${r.sources.npl}`);
+        if (r.sources.allowance) bits.push(`acl:${r.sources.allowance}`);
+      } else {
+        if (r.sources.cash) bits.push(`cash:${r.sources.cash}`);
+        if (r.sources.oi) bits.push(`oi:${r.sources.oi}`);
+      }
+      if (r.sources.shares) bits.push(`shares:${r.sources.shares}`);
+      return bits.length ? `${r.year} ${bits.join(' ')}` : null;
+    })
+    .filter(Boolean);
+
   return {
     incomplete,
     incompleteReasons: reasons,
+    dataWarnings: warnings,
+    provenanceHints,
+    sourceLetter: SOURCE_LETTER,
     yearCount: coverage.length,
     latestYear:
       coverage.length > 0 ? coverage[coverage.length - 1].year : null,
     roicMode: report?.roicMeta?.mode ?? null,
+    bankMode,
     statementScope: report?.roicMeta?.statementScope ?? null,
     checklistNa,
     checklistEval,
@@ -549,6 +829,25 @@ export function seriesByKey(financials, key) {
     .filter((d) => d.value != null);
 }
 
+/** Yearly ratio series (optional ×100 for percentage points). */
+export function ratioSeriesByKeys(
+  financials,
+  numKey,
+  denKey,
+  { asPct = false } = {},
+) {
+  return sortedFinancials(financials)
+    .map((f) => {
+      const n = safeNum(f[numKey]);
+      const d = safeNum(f[denKey]);
+      if (n == null || d == null || d <= 0) return null;
+      const value = asPct ? (n / d) * 100 : n / d;
+      if (!Number.isFinite(value)) return null;
+      return { year: String(f.fiscal_year), value };
+    })
+    .filter(Boolean);
+}
+
 /** Series suitable for P&L CAGR (strictly profitable points only). */
 export function plGrowthSeries(financials, key) {
   const floor = PL_MIN_ABS_PREV[key] ?? 0;
@@ -564,6 +863,9 @@ export function computeCagr(series) {
   if (first < 0 || last < 0) return null;
   return (last / first) ** (1 / periods) - 1;
 }
+
+/** Skip ROIC points when |value| exceeds this (percentage points). */
+export const ROIC_ABSURD_ABS_PCT = 100;
 
 /**
  * Invested capital for ROIC.
@@ -650,9 +952,12 @@ export function computeRoicSeries(financials = [], company = null) {
       }
       if (eq === 0) continue;
 
+      const value = (ni / eq) * 100;
+      if (Math.abs(value) > ROIC_ABSURD_ABS_PCT) continue;
+
       out.push({
         year: String(row.fiscal_year),
-        value: (ni / eq) * 100,
+        value,
         usedCurrentLiab: false,
         mode: 'equity',
       });
@@ -705,9 +1010,12 @@ export function computeRoicSeries(financials = [], company = null) {
       if (nopat == null) continue;
     }
 
+    const value = (nopat / ic) * 100;
+    if (Math.abs(value) > ROIC_ABSURD_ABS_PCT) continue;
+
     out.push({
       year: String(row.fiscal_year),
-      value: (nopat / ic) * 100,
+      value,
       usedCurrentLiab: safeNum(row.total_current_liabilities) != null,
       mode,
     });
@@ -997,11 +1305,18 @@ export function buildReport(company, thresholds) {
       : null;
   const avgYield3y = price && avgDivPerShare != null ? avgDivPerShare / price : null;
 
+  const loansRaw = seriesByKey(financials, 'total_loans');
+  const depositsRaw = seriesByKey(financials, 'total_deposits');
+  const niiRaw = seriesByKey(financials, 'net_interest_income');
+
   const growth = {
     bookValue: computeCagr(bv),
     income: computeCagr(plGrowthSeries(financials, 'net_income')),
     assets: computeCagr(assets),
     liabilities: computeCagr(liabilities),
+    loans: computeCagr(loansRaw),
+    deposits: computeCagr(depositsRaw),
+    nii: computeCagr(niiRaw),
   };
 
   const latestAssets = safeNum(latest?.total_assets);
@@ -1039,7 +1354,8 @@ export function buildReport(company, thresholds) {
     dilutionPass = latestShares <= prevShares * 1.001;
   }
 
-  const checklist = [
+  const financial = isFinancialSector(company);
+  const checklistHead = [
     {
       label: `P/E Ratio < ${Number(peMax)}`,
       pass: peCheckPass(peRaw, peMax),
@@ -1048,41 +1364,73 @@ export function buildReport(company, thresholds) {
       label: `P/B < ${Number(pbMax)}`,
       pass: pb != null ? pb < pbMax : null,
     },
-    {
-      label: 'Increasing BV',
-      pass:
-        prev && latest
-          ? safeNum(latest.book_value) > safeNum(prev.book_value)
-          : null,
-    },
-    {
-      label: 'Increasing Income',
-      pass:
-        prev && latest
-          ? safeNum(latest.net_income) > safeNum(prev.net_income)
-          : null,
-    },
-    {
-      label: 'Increasing Assets',
-      pass:
-        prev && latest
-          ? safeNum(latest.total_assets) > safeNum(prev.total_assets)
-          : null,
-    },
-    { label: 'NO Share Dilution', pass: dilutionPass },
-    {
-      label: 'Quick/Current R > 1',
-      pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
-    },
-    {
-      label: `Debt/Equity < ${Number(deMax)}`,
-      pass: debtToEquityPass(debtToEquityRatio(latest, company), deMax),
-    },
+  ];
+  const checklistTail = [
     {
       label: `ROE > ${Math.round(roeMin * 100)}%`,
       pass: roeRaw != null ? roeRaw > roeMin : null,
     },
   ];
+  const checklistMid = financial
+    ? [
+        {
+          label: 'Loan growth YoY > 0',
+          pass: yoyGrowthPass(latest, prev, 'total_loans'),
+        },
+        {
+          label: 'Deposit growth YoY > 0',
+          pass: yoyGrowthPass(latest, prev, 'total_deposits'),
+        },
+        {
+          label: `Loans/Deposits < ${BANK_LDR_MAX}`,
+          pass: ldrPass(latest),
+        },
+        {
+          label: `NPL ratio < ${Math.round(BANK_NPL_RATIO_MAX * 100)}%`,
+          pass: nplRatioPass(latest),
+        },
+        {
+          label: `Equity/Assets ≥ ${Math.round(BANK_EQUITY_ASSET_MIN * 100)}%`,
+          pass: equityAssetPass(latest, company),
+        },
+        {
+          label: 'NII growth YoY > 0 (or NIM proxy)',
+          pass: niiOrNimPass(latest, prev),
+        },
+      ]
+    : [
+        {
+          label: 'Increasing BV',
+          pass:
+            prev && latest
+              ? safeNum(latest.book_value) > safeNum(prev.book_value)
+              : null,
+        },
+        {
+          label: 'Increasing Income',
+          pass:
+            prev && latest
+              ? safeNum(latest.net_income) > safeNum(prev.net_income)
+              : null,
+        },
+        {
+          label: 'Increasing Assets',
+          pass:
+            prev && latest
+              ? safeNum(latest.total_assets) > safeNum(prev.total_assets)
+              : null,
+        },
+        { label: 'NO Share Dilution', pass: dilutionPass },
+        {
+          label: 'Quick/Current R > 1',
+          pass: liquidityRatioPass(latest?.current_ratio, latest?.quick_ratio),
+        },
+        {
+          label: `Debt/Equity < ${Number(deMax)}`,
+          pass: debtToEquityPass(debtToEquityRatio(latest, company), deMax),
+        },
+      ];
+  const checklist = [...checklistHead, ...checklistMid, ...checklistTail];
 
   const debtEquitySeries = financials
     .map((f) => {
@@ -1094,6 +1442,49 @@ export function buildReport(company, thresholds) {
   const debtEquityLatest =
     debtEquitySeries.length > 0
       ? debtEquitySeries[debtEquitySeries.length - 1].value
+      : null;
+
+  const bankMode = financial;
+  const loansSeries = loansRaw.map((d) => ({
+    ...d,
+    value: d.value / 1e9,
+  }));
+  const depositsSeries = depositsRaw.map((d) => ({
+    ...d,
+    value: d.value / 1e9,
+  }));
+  const niiSeries = niiRaw.map((d) => ({
+    ...d,
+    value: d.value / 1e9,
+  }));
+  const ldrSeries = ratioSeriesByKeys(
+    financials,
+    'total_loans',
+    'total_deposits',
+  );
+  const nplRatioSeries = ratioSeriesByKeys(
+    financials,
+    'npl',
+    'total_loans',
+    { asPct: true },
+  );
+  const equityAssetsSeries = financials
+    .map((f) => {
+      const eq = equityForRoe(f, company);
+      const a = safeNum(f.total_assets);
+      if (eq == null || a == null || a <= 0) return null;
+      return { year: String(f.fiscal_year), value: (eq / a) * 100 };
+    })
+    .filter(Boolean);
+  const ldrLatest =
+    ldrSeries.length > 0 ? ldrSeries[ldrSeries.length - 1].value : null;
+  const nplRatioLatest =
+    nplRatioSeries.length > 0
+      ? nplRatioSeries[nplRatioSeries.length - 1].value / 100
+      : null;
+  const equityAssetsLatest =
+    equityAssetsSeries.length > 0
+      ? equityAssetsSeries[equityAssetsSeries.length - 1].value / 100
       : null;
 
   // Millions of shares for axis readability (same shape as other YoY series)
@@ -1136,6 +1527,7 @@ export function buildReport(company, thresholds) {
     asOf: company.last_updated
       ? new Date(company.last_updated)
       : new Date(),
+    bankMode,
     charts: {
       bookValue: bv,
       netIncome: ni.map((d) => ({ ...d, value: d.value / 1e9 })),
@@ -1148,10 +1540,25 @@ export function buildReport(company, thresholds) {
       dividends: divSeries,
       roic: roicSeries,
       debtEquity: debtEquitySeries,
+      loans: loansSeries,
+      deposits: depositsSeries,
+      nii: niiSeries,
+      ldr: ldrSeries,
+      nplRatio: nplRatioSeries,
+      equityAssets: equityAssetsSeries,
     },
     growth,
     bvDerivation,
-    ratios: { pe, pb, roe, roic, debtEquity: debtEquityLatest },
+    ratios: {
+      pe,
+      pb,
+      roe,
+      roic,
+      debtEquity: debtEquityLatest,
+      ldr: ldrLatest,
+      nplRatio: nplRatioLatest,
+      equityAssets: equityAssetsLatest,
+    },
     roicMeta: {
       usedCurrentLiab: roicUsedCurrentLiab,
       mode: roicResult.mode,
@@ -1175,8 +1582,19 @@ export function buildReport(company, thresholds) {
     latestYear,
     passesScreen: !company.info_incomplete && score.pass > 5,
     chartVisibility: {
-      outstandingShares: isDenseYoYSeries(outstandingShares),
+      outstandingShares: !bankMode && isDenseYoYSeries(outstandingShares),
       roic: isDenseYoYSeries(roicSeries),
+      debtEquity: !bankMode && debtEquitySeries.length > 0,
+      loans: bankMode && loansSeries.length > 0,
+      deposits: bankMode && depositsSeries.length > 0,
+      nii: bankMode && niiSeries.length > 0,
+      ldr: bankMode && ldrSeries.length > 0,
+      nplRatio: bankMode && nplRatioSeries.length > 0,
+      equityAssets: bankMode && equityAssetsSeries.length > 0,
+      // Industrials keep revenue/EPS/liab; banks prioritize checklist drivers.
+      revenue: !bankMode,
+      eps: !bankMode,
+      liabilities: !bankMode,
     },
   };
   report.dataQuality = buildDataQuality(company, report);

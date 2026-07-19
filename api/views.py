@@ -21,6 +21,7 @@ class CompanyListView(ListAPIView):
         'symbol', 'name', 'sector', 'subsector', 'ticker',
         'check_pass_count', 'check_evaluable_total', 'live_check_pass', 'live_check_eval',
         'info_incomplete', 'market_cap', 'last_traded_price', 'div_yield', 'roic',
+        'pe_ratio', 'pb_ratio', 'roe', 'debt_to_equity',
     ]
     ordering = ['-live_check_pass', 'symbol']
 
@@ -28,9 +29,8 @@ class CompanyListView(ListAPIView):
         qs = super().get_queryset()
         thresholds = thresholds_from_request(self.request)
         qs = annotate_live_checks(qs, thresholds)
-        # Watchlist loads pass ids=; prefetch shares for dilution_pass
-        if self.request.query_params.get('ids'):
-            qs = qs.prefetch_related('financial_set')
+        # Prefetch for incomplete_reasons / data_warnings (and dilution when ids=)
+        qs = qs.prefetch_related('financial_set')
         return qs
 
     def filter_queryset(self, queryset):
@@ -65,23 +65,31 @@ class CompanyFacetsView(APIView):
     """Distinct sector / subsector values for registry filter dropdowns."""
 
     def get(self, request):
-        sectors = (
+        sectors = list(
             Company.objects.exclude(sector__isnull=True)
             .exclude(sector='')
             .values_list('sector', flat=True)
             .distinct()
             .order_by('sector')
         )
-        subsectors = (
-            Company.objects.exclude(subsector__isnull=True)
+        pairs = (
+            Company.objects.exclude(sector__isnull=True)
+            .exclude(sector='')
+            .exclude(subsector__isnull=True)
             .exclude(subsector='')
-            .values_list('subsector', flat=True)
+            .values_list('sector', 'subsector')
             .distinct()
-            .order_by('subsector')
+            .order_by('sector', 'subsector')
         )
+        sector_subsectors = {}
+        all_subsectors = set()
+        for sector, subsector in pairs:
+            sector_subsectors.setdefault(sector, []).append(subsector)
+            all_subsectors.add(subsector)
         return Response({
-            'sectors': list(sectors),
-            'subsectors': list(subsectors),
+            'sectors': sectors,
+            'subsectors': sorted(all_subsectors),
+            'sector_subsectors': sector_subsectors,
             'cap_tiers': ['MICRO', 'SMALL', 'MID', 'LARGE'],
             'threshold_defaults': {
                 'pe_max': 22,

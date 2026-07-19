@@ -12,8 +12,17 @@ DEFAULT_THRESHOLDS = {
     "de_max": 2.0,
 }
 
-# Checklist order: 0 PE, 1 PB, 2–6 structural, 7 D/E (live), 8 ROE (live)
+# Bank structural floors (not live-threshold UI this pass)
+BANK_LDR_MAX = 1.05
+BANK_NPL_RATIO_MAX = 0.05
+BANK_EQUITY_ASSET_MIN = 0.08
+BANK_NIM_PROXY_MIN = 0.015
+
+# Checklist order: 0 PE, 1 PB, 2–6 structural, 7 D/E (live) or bank NII, 8 ROE (live)
+# Industrial mid (indexes 2–6); D/E at 7 is live-rescored with thresholds.
 STRUCT_CHECK_INDEXES = (2, 3, 4, 5, 6)
+# Bank mid includes NII at index 7 (no D/E slot on the bank checklist).
+STRUCT_CHECK_INDEXES_BANK = (2, 3, 4, 5, 6, 7)
 
 # P&L growth only meaningful when both periods are profitable (skip sign flips / zeros)
 PL_GROWTH_KEYS = frozenset({
@@ -50,12 +59,16 @@ def normalize_thresholds(thresholds=None):
 
 
 def metric_value(value, key=None):
-    """safe_float with zero-revenue / zero-EPS treated as missing."""
+    """safe_float with zero/negative revenue and zero-EPS treated as missing."""
     v = safe_float(value)
     if v is None:
         return None
-    if key in ZERO_AS_MISSING_KEYS and v == 0:
-        return None
+    if key in ZERO_AS_MISSING_KEYS:
+        # Exact 0 is an EDGE/HTML placeholder; negative top-line is not revenue
+        if key in ("revenue", "gross_revenue") and v <= 0:
+            return None
+        if key == "eps" and v == 0:
+            return None
     return v
 
 
@@ -520,6 +533,177 @@ def needs_pdf_cash(row) -> bool:
     return False
 
 
+def needs_pdf_eps(row) -> bool:
+    """
+    True when EPS is missing or EDGE-rounded to 0 while NI is material.
+
+    Completeness treats eps==0 as missing (ZERO_AS_MISSING_KEYS); PDF/derive
+    may replace those placeholders.
+    """
+    if not row:
+        return True
+    eps = safe_float(row.get("eps"))
+    ni = safe_float(row.get("net_income"))
+    if eps is None:
+        return True
+    if eps == 0:
+        # Real zero earnings when NI is ~0 — leave alone
+        if ni is not None and abs(ni) < 1_000.0:
+            return False
+        return True
+    return False
+
+
+def eps_plausible(eps, row=None, *, price=None) -> bool:
+    """
+    Reject EPS that cannot be a per-share figure for this row.
+
+    - |EPS| > |price| when price is known (PSE peso prices)
+    - |EPS| disagrees with NI/shares by more than 10×
+    """
+    eps = safe_float(eps)
+    if eps is None:
+        return False
+    price = safe_float(price)
+    if price is not None and price > 0 and abs(eps) > abs(price):
+        return False
+    row = row or {}
+    ni = safe_float(row.get("net_income"))
+    shares = safe_float(row.get("outstanding_shares"))
+    if ni is not None and shares is not None and shares > 0 and abs(ni) > 0:
+        implied = ni / shares
+        if abs(implied) > 1e-15:
+            ratio = abs(eps) / abs(implied)
+            if ratio > 10.0 or ratio < 0.1:
+                return False
+    return True
+
+
+def derive_eps_from_ni_shares(
+    row: dict,
+    *,
+    shares_fallback: float | None = None,
+    price: float | None = None,
+) -> float | None:
+    """
+    NI / shares when EPS is missing or EDGE-zeroed.
+
+    Returns None when anchors are weak or the implied EPS is absurd.
+    """
+    if not needs_pdf_eps(row):
+        return None
+    ni = safe_float(row.get("net_income"))
+    shares = safe_float(row.get("outstanding_shares"))
+    if shares is None or shares <= 0:
+        shares = safe_float(shares_fallback)
+    if ni is None or shares is None or shares <= 0:
+        return None
+    eps = ni / shares
+    if abs(eps) < 1e-12:
+        return None
+    if abs(eps) > 1_000_000:
+        return None
+    check = dict(row)
+    check["outstanding_shares"] = shares
+    if not eps_plausible(eps, check, price=price):
+        return None
+    return eps
+
+
+def needs_derived_ni(row) -> bool:
+    """True when NI is null but a usable non-zero EPS is present."""
+    if not row:
+        return False
+    if safe_float(row.get("net_income")) is not None:
+        return False
+    eps = safe_float(row.get("eps"))
+    if eps is None or eps == 0:
+        return False
+    return True
+
+
+def derive_ni_from_ibt(row: dict) -> float | None:
+    """
+    IBT − tax when net_income is null (SUN wipeout years: NI missing, IBT present).
+
+    Prefer this over inventing from EPS when the income statement already printed
+    pre-tax income.
+    """
+    if not row or safe_float(row.get("net_income")) is not None:
+        return None
+    ibt = safe_float(row.get("income_before_tax"))
+    if ibt is None or abs(ibt) < 1.0:
+        return None
+    tax = safe_float(row.get("income_tax_expense"))
+    if tax is None:
+        tax = 0.0
+    ni = ibt - tax
+    if abs(ni) < 1.0 or abs(ni) > 1e14:
+        return None
+    return ni
+
+
+def derive_ni_from_eps_shares(
+    row: dict,
+    *,
+    shares_fallback: float | None = None,
+) -> float | None:
+    """
+    EPS × shares when net_income is null (loss EPS often lands without NI).
+
+    Returns None when anchors are weak or the implied NI is absurd.
+    Wipeout years (|NI| ≫ assets) are allowed when IBT corroborates magnitude.
+    """
+    if not needs_derived_ni(row):
+        return None
+    eps = safe_float(row.get("eps"))
+    shares = safe_float(row.get("outstanding_shares"))
+    if shares is None or shares <= 0:
+        shares = safe_float(shares_fallback)
+    if eps is None or shares is None or shares <= 0:
+        return None
+    # PSE basic EPS is almost always under ~100; larger values are OCR/scale junk
+    if abs(eps) > 100.0:
+        return None
+    ni = eps * shares
+    if abs(ni) < 1.0:
+        return None
+    if abs(ni) > 1e14:
+        return None
+    assets = safe_float(row.get("total_assets"))
+    if assets is not None and abs(assets) > 1e6 and abs(ni) > 2.0 * abs(assets):
+        ibt = safe_float(row.get("income_before_tax"))
+        if ibt is None or abs(ibt) < 1.0:
+            return None
+        # Corroborate magnitude within 15%; prefer IBT sign on wipeouts
+        if abs(abs(ni) - abs(ibt)) / abs(ibt) > 0.15:
+            return None
+        ni = -abs(ni) if ibt < 0 else abs(ni)
+    return ni
+
+
+def derive_book_value_per_share(
+    row: dict,
+    *,
+    shares_fallback: float | None = None,
+) -> float | None:
+    """Equity ÷ shares when book_value (per share) is missing."""
+    if safe_float(row.get("book_value")) is not None:
+        return None
+    equity = safe_float(row.get("stockholders_equity"))
+    if equity is None:
+        equity = safe_float(row.get("total_equity"))
+    shares = safe_float(row.get("outstanding_shares"))
+    if shares is None or shares <= 0:
+        shares = safe_float(shares_fallback)
+    if equity is None or shares is None or shares <= 0:
+        return None
+    bv = equity / shares
+    if abs(bv) < 1e-12 or abs(bv) > 1_000_000:
+        return None
+    return bv
+
+
 def needs_pdf_ga(row) -> bool:
     """True when GA is missing or absurdly small vs revenue."""
     if not row:
@@ -687,6 +871,12 @@ def equity_for_roe(latest, company=None):
     return None
 
 
+# Skip / null ROIC when |value| exceeds this (percentage points in series).
+ROIC_ABSURD_ABS_PCT = 100
+# Soft warn when |IC| or |equity| is below this share of |total_assets|.
+THIN_INVESTED_CAPITAL_ASSET_FRAC = 0.01
+
+
 def _invested_capital(row, *, proper=False):
     """Mirror frontend investedCapital."""
     assets = safe_float(row.get("total_assets"))
@@ -755,10 +945,13 @@ def compute_roic_series(financials, company=None):
                     eq = (eq_beg + eq_end) / 2.0
             if eq == 0:
                 continue
+            value = (ni / eq) * 100.0
+            if abs(value) > ROIC_ABSURD_ABS_PCT:
+                continue
             out.append(
                 {
                     "year": str(row["fiscal_year"]),
-                    "value": (ni / eq) * 100.0,
+                    "value": value,
                     "mode": "equity",
                 }
             )
@@ -803,10 +996,13 @@ def compute_roic_series(financials, company=None):
             nopat = safe_float(row.get("net_income"))
             if nopat is None:
                 continue
+        value = (nopat / ic) * 100.0
+        if abs(value) > ROIC_ABSURD_ABS_PCT:
+            continue
         out.append(
             {
                 "year": str(row["fiscal_year"]),
-                "value": (nopat / ic) * 100.0,
+                "value": value,
                 "mode": mode,
             }
         )
@@ -818,16 +1014,72 @@ def compute_roic_series(financials, company=None):
     }
 
 
+def _thin_invested_capital(financials, company=None) -> bool:
+    """True when latest |IC| or |equity| is < 1% of |total_assets|."""
+    rows = _complete_financials(financials)
+    if not rows:
+        return False
+    _, denom = _raw_latest_roic_pct(rows, company)
+    assets = safe_float(rows[-1].get("total_assets"))
+    if denom is None or assets is None or abs(assets) <= 0:
+        return False
+    return abs(denom) < abs(assets) * THIN_INVESTED_CAPITAL_ASSET_FRAC
+
+
 def latest_roic_fraction(company, financials):
     """Latest ROIC as a fraction (0.12 = 12%) for persistence / API filter."""
+    if _thin_invested_capital(financials, company):
+        return None
     result = compute_roic_series(financials, company)
     series = result.get("series") or []
     if not series:
         return None
     pct = safe_float(series[-1].get("value"))
-    if pct is None:
+    if pct is None or abs(pct) > ROIC_ABSURD_ABS_PCT:
         return None
     return pct / 100.0
+
+
+def _raw_latest_roic_pct(financials, company=None):
+    """Latest ROIC % without the absurdity skip (for data_warnings)."""
+    from src.filing_triage import is_financial_sector
+
+    rows = _complete_financials(financials)
+    if not rows:
+        return None, None
+    sector = (company or {}).get("sector")
+    subsector = (company or {}).get("subsector")
+    latest = rows[-1]
+    if is_financial_sector(sector, subsector):
+        ni = safe_float(latest.get("net_income"))
+        eq = equity_for_roe(latest, company)
+        if ni is None or eq is None or eq == 0:
+            return None, eq
+        return (ni / eq) * 100.0, eq
+    can_proper = any(
+        prefer_operating_income(r) is not None
+        and safe_float(r.get("total_assets")) is not None
+        and safe_float(r.get("cash_and_equivalents")) is not None
+        and safe_float(r.get("total_current_liabilities")) is not None
+        for r in rows
+    )
+    mode = "proper" if can_proper else "proxy"
+    ic = _invested_capital(latest, proper=mode == "proper")
+    if ic is None or ic == 0:
+        return None, ic
+    if mode == "proper":
+        op = prefer_operating_income(latest)
+        if op is None:
+            return None, ic
+        t = _effective_tax_rate(latest)
+        if t is None:
+            t = 0.25
+        nopat = op * (1.0 - t)
+    else:
+        nopat = safe_float(latest.get("net_income"))
+        if nopat is None:
+            return None, ic
+    return (nopat / ic) * 100.0, ic
 
 
 def compute_growth(metric_key, years, company_data):
@@ -986,11 +1238,23 @@ def merge_live_score(struct_pass, struct_eval, pe_pass, pb_pass, roe_pass, de_pa
     return passed, total
 
 
-def structural_checklist_score(checklist):
-    """Pass/evaluable counts for structural checks only (indexes 2–6)."""
+def structural_checklist_score(checklist, company=None):
+    """Pass/evaluable counts for structural mid-checklist slots.
+
+    Industrial: indexes 2–6 (D/E is added live with PE/PB/ROE).
+    Banks: indexes 2–7 (all bank mid slots including NII; no D/E).
+    """
+    from src.filing_triage import is_banks_subsector
+
+    company = company or {}
+    indexes = (
+        STRUCT_CHECK_INDEXES_BANK
+        if is_banks_subsector(company.get("sector"), company.get("subsector"))
+        else STRUCT_CHECK_INDEXES
+    )
     passed = 0
     total = 0
-    for i in STRUCT_CHECK_INDEXES:
+    for i in indexes:
         if i >= len(checklist):
             break
         p = checklist[i].get("pass")
@@ -1000,6 +1264,81 @@ def structural_checklist_score(checklist):
         if p is True:
             passed += 1
     return passed, total
+
+
+def _yoy_growth_pass(latest, prev, key):
+    """True when latest[key] > prev[key]; None if either missing."""
+    if not latest or not prev:
+        return None
+    a = safe_float(latest.get(key))
+    b = safe_float(prev.get(key))
+    if a is None or b is None or b == 0:
+        return None
+    return a > b
+
+
+def _ldr_pass(latest, *, max_ldr=BANK_LDR_MAX):
+    """Loans / deposits < max_ldr."""
+    if not latest:
+        return None
+    loans = safe_float(latest.get("total_loans"))
+    deposits = safe_float(latest.get("total_deposits"))
+    if loans is None or deposits is None or deposits <= 0:
+        return None
+    return (loans / deposits) < max_ldr
+
+
+def _npl_ratio_pass(latest, *, max_ratio=BANK_NPL_RATIO_MAX):
+    """npl / total_loans < max_ratio; NA when either missing."""
+    if not latest:
+        return None
+    npl = safe_float(latest.get("npl"))
+    loans = safe_float(latest.get("total_loans"))
+    if npl is None or loans is None or loans <= 0:
+        return None
+    return (npl / loans) < max_ratio
+
+
+def _equity_asset_pass(latest, company=None, *, min_ratio=BANK_EQUITY_ASSET_MIN):
+    """stockholders_equity / total_assets >= min_ratio (capital proxy)."""
+    if not latest:
+        return None
+    assets = safe_float(latest.get("total_assets"))
+    equity = equity_for_roe(latest, company)
+    if assets is None or equity is None or assets <= 0:
+        return None
+    return (equity / assets) >= min_ratio
+
+
+def _nii_or_nim_pass(
+    latest,
+    prev,
+    *,
+    nim_min=BANK_NIM_PROXY_MIN,
+):
+    """
+    Prefer NII YoY growth > 0; if only one NII year, NIM proxy =
+    NII / avg(total_assets) >= nim_min (avg with prior assets when present).
+    """
+    if not latest:
+        return None
+    nii_l = safe_float(latest.get("net_interest_income"))
+    if nii_l is None:
+        return None
+    nii_p = safe_float(prev.get("net_interest_income")) if prev else None
+    if nii_p is not None and nii_p != 0:
+        return nii_l > nii_p
+    assets_l = safe_float(latest.get("total_assets"))
+    if assets_l is None or assets_l <= 0:
+        return None
+    assets_p = safe_float(prev.get("total_assets")) if prev else None
+    if assets_p is not None and assets_p > 0:
+        avg_a = (assets_l + assets_p) / 2.0
+    else:
+        avg_a = assets_l
+    if avg_a <= 0:
+        return None
+    return (nii_l / avg_a) >= nim_min
 
 
 def build_checklist(company, financials, thresholds=None):
@@ -1066,7 +1405,7 @@ def build_checklist(company, financials, thresholds=None):
         return a > b
 
     roe_pct = int(round(roe_min * 100))
-    return [
+    head = [
         {
             "label": f"P/E Ratio < {pe_max:g}",
             "pass": pe_check_pass(pe, pe_max),
@@ -1075,6 +1414,46 @@ def build_checklist(company, financials, thresholds=None):
             "label": f"P/B < {pb_max:g}",
             "pass": pb < pb_max if pb is not None else None,
         },
+    ]
+    tail = [
+        {
+            "label": f"ROE > {roe_pct}%",
+            "pass": roe > roe_min if roe is not None else None,
+        },
+    ]
+
+    from src.filing_triage import is_banks_subsector
+
+    if is_banks_subsector(company.get("sector"), company.get("subsector")):
+        mid = [
+            {
+                "label": "Loan growth YoY > 0",
+                "pass": _yoy_growth_pass(latest, prev, "total_loans"),
+            },
+            {
+                "label": "Deposit growth YoY > 0",
+                "pass": _yoy_growth_pass(latest, prev, "total_deposits"),
+            },
+            {
+                "label": f"Loans/Deposits < {BANK_LDR_MAX:g}",
+                "pass": _ldr_pass(latest),
+            },
+            {
+                "label": f"NPL ratio < {int(BANK_NPL_RATIO_MAX * 100)}%",
+                "pass": _npl_ratio_pass(latest),
+            },
+            {
+                "label": f"Equity/Assets ≥ {int(BANK_EQUITY_ASSET_MIN * 100)}%",
+                "pass": _equity_asset_pass(latest, company),
+            },
+            {
+                "label": "NII growth YoY > 0 (or NIM proxy)",
+                "pass": _nii_or_nim_pass(latest, prev),
+            },
+        ]
+        return head + mid + tail
+
+    return head + [
         {"label": "Increasing BV", "pass": _inc("book_value")},
         {"label": "Increasing Income", "pass": _inc("net_income")},
         {"label": "Increasing Assets", "pass": _inc("total_assets")},
@@ -1086,17 +1465,116 @@ def build_checklist(company, financials, thresholds=None):
                 debt_to_equity_ratio(latest, company), de_max
             ),
         },
-        {
-            "label": f"ROE > {roe_pct}%",
-            "pass": roe > roe_min if roe is not None else None,
-        },
-    ]
+    ] + tail
 
 
 def checklist_score(checklist):
     evaluable = [item for item in checklist if item.get("pass") is not None]
     passed = sum(1 for item in evaluable if item.get("pass") is True)
     return passed, len(evaluable)
+
+
+def apply_revenue_surrogate(
+    row: dict,
+    company: dict | None = None,
+    *,
+    financials: list | None = None,
+) -> str | None:
+    """
+    When commercial revenue is absent, copy a sector-allowed stand-in into revenue.
+
+    Order: gross_revenue → equity in associates → interest / investment income.
+    Returns the source key used, or None. Never runs for deposit banks.
+    """
+    from src.filing_triage import allows_revenue_surrogate
+
+    company = company or {}
+    fins = financials if financials is not None else company.get("_financials")
+    if not allows_revenue_surrogate(
+        company.get("sector"),
+        company.get("subsector"),
+        financials=fins,
+    ):
+        return None
+    if metric_value(row.get("revenue"), "revenue") is not None:
+        return None
+
+    for src in (
+        "gross_revenue",
+        "equity_in_earnings",
+        "interest_income",
+    ):
+        v = metric_value(row.get(src), "revenue" if src == "gross_revenue" else None)
+        if v is None:
+            continue
+        # Top-line stand-ins must be positive; scraps under 100k are note noise
+        if v <= 0 or v < 100_000:
+            continue
+        # Year headers misread as amounts
+        if 1990 <= v <= 2100 and abs(v - round(v)) < 1e-9:
+            continue
+        assets = safe_float(row.get("total_assets"))
+        if assets is not None and assets > 1e9 and v < 0.00001 * assets:
+            continue
+        row["revenue"] = float(v)
+        return src
+    return None
+
+
+def clear_invalid_derived_revenue(row: dict) -> bool:
+    """
+    Null out non-positive revenue (placeholders / bad derived fills).
+
+    Prefer clearing derived tags; also clears any ≤0 revenue so negative
+    HTML scraps cannot satisfy the screening gate.
+    """
+    from src.field_sources import sources_from_json
+
+    try:
+        v = float(row.get("revenue"))
+    except (TypeError, ValueError):
+        return False
+    if v > 0:
+        return False
+    src = row.get("_field_sources")
+    if not isinstance(src, dict):
+        src = sources_from_json(row.get("field_sources"))
+    row["revenue"] = None
+    if isinstance(src, dict):
+        src.pop("revenue", None)
+        row["_field_sources"] = src
+    return True
+
+
+def _latest_core_field_missing(latest: dict, key: str) -> bool:
+    """True when a required completeness field is absent on the latest year."""
+    if key in ZERO_AS_MISSING_KEYS:
+        missing = metric_value(latest.get(key), key) is None
+        # Real zero NI → EPS 0 is a valid print, not an EDGE placeholder
+        if (
+            missing
+            and key == "eps"
+            and safe_float(latest.get("net_income")) is not None
+            and abs(float(latest["net_income"])) < 1_000.0
+        ):
+            return False
+        return missing
+    return safe_float(latest.get(key)) is None
+
+
+def _waive_revenue_incomplete(company, patched_years, latest) -> bool:
+    """
+    Skip hard revenue incomplete when chronic no-top-line (or bank/ETF)
+    and the other core fields are present.
+    """
+    from src.filing_triage import waives_revenue_completeness
+
+    if not _latest_core_field_missing(latest, "revenue"):
+        return False
+    for key in ("net_income", "total_assets", "eps", "book_value"):
+        if _latest_core_field_missing(latest, key):
+            return False
+    return waives_revenue_completeness(company, patched_years)
 
 
 def incomplete_reasons(company, financials):
@@ -1108,18 +1586,24 @@ def incomplete_reasons(company, financials):
     reasons = []
     if not company.get("name") and not company.get("ticker"):
         reasons.append("no_identity")
-    fin = _complete_financials(financials)
+    # Apply surrogates on a shallow copy of years so gate sees filled revenue
+    company = company or {}
+    patched = []
+    for f in financials or []:
+        row = dict(f)
+        apply_revenue_surrogate(row, company, financials=financials)
+        patched.append(row)
+    fin = _complete_financials(patched)
     if not fin:
         reasons.append("no_financials")
         return reasons
     latest = fin[-1]
+    waive_rev = _waive_revenue_incomplete(company, patched, latest)
     required = ("revenue", "net_income", "total_assets", "eps", "book_value")
     for key in required:
-        if key in ZERO_AS_MISSING_KEYS:
-            missing = metric_value(latest.get(key), key) is None
-        else:
-            missing = safe_float(latest.get(key)) is None
-        if missing:
+        if key == "revenue" and waive_rev:
+            continue
+        if _latest_core_field_missing(latest, key):
             reasons.append(key)
     return reasons
 
@@ -1127,6 +1611,58 @@ def incomplete_reasons(company, financials):
 def is_info_incomplete(company, financials):
     """True when core company or latest-year filing data is missing."""
     return bool(incomplete_reasons(company, financials))
+
+
+def data_warnings(company, financials):
+    """
+    Soft quality signals (do not flip info_incomplete).
+    Tokens: no_cash_for_proper_roic, thin_shares_series, thin_core_history,
+    absurd_roic, thin_invested_capital, no_commercial_revenue.
+    """
+    from src.filing_triage import is_financial_sector
+    from src.utils import safe_float
+
+    warnings = []
+    company = company or {}
+    patched = []
+    for f in financials or []:
+        row = dict(f)
+        apply_revenue_surrogate(row, company, financials=financials)
+        patched.append(row)
+    fin = _complete_financials(patched)
+    if len(fin) < 3:
+        warnings.append("thin_core_history")
+
+    share_years = 0
+    for f in fin:
+        shares = safe_float(f.get("outstanding_shares"))
+        if shares is not None and shares > 0:
+            share_years += 1
+    if share_years < 2:
+        warnings.append("thin_shares_series")
+
+    if fin and _waive_revenue_incomplete(company, patched, fin[-1]):
+        warnings.append("no_commercial_revenue")
+
+    financial = is_financial_sector(company.get("sector"), company.get("subsector"))
+    if financial:
+        # Not incomplete: industrial invested-capital ROIC does not apply.
+        warnings.append("industrial_roic_na_use_equity")
+    elif fin:
+        latest = fin[-1]
+        cash = safe_float(latest.get("cash_and_equivalents"))
+        if cash is None:
+            # Proper ROIC needs cash; proxy/equity paths still work.
+            warnings.append("no_cash_for_proper_roic")
+
+    if fin:
+        raw_pct, _denom = _raw_latest_roic_pct(fin, company)
+        if raw_pct is not None and abs(raw_pct) > ROIC_ABSURD_ABS_PCT:
+            warnings.append("absurd_roic")
+        if _thin_invested_capital(fin, company):
+            warnings.append("thin_invested_capital")
+
+    return warnings
 
 
 def _is_common_dividend(d):
@@ -1317,7 +1853,7 @@ def compute_div_yield(price, dividends, latest_fiscal_year=None, as_of=None):
 def compute_screening_summary(company, financials, dividends=None, thresholds=None):
     checklist = build_checklist(company, financials, thresholds=thresholds)
     passed, total = checklist_score(checklist)
-    struct_pass, struct_eval = structural_checklist_score(checklist)
+    struct_pass, struct_eval = structural_checklist_score(checklist, company)
     incomplete = is_info_incomplete(company, financials)
     div_yield = compute_div_yield(
         company.get("last_traded_price"),

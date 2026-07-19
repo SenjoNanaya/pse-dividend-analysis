@@ -2,6 +2,7 @@
 Offline backfill orchestrator (no EDGE network).
 
 Order:
+  0. prune out-of-range fiscal years (< 1995 or > current year)
   1. stockholders_equity (A − L when missing)
   2. div_yield
   3. roic
@@ -18,6 +19,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src import db  # noqa: E402
+
 
 def _load_script(stem):
     path = ROOT / "scripts" / f"{stem}.py"
@@ -25,6 +28,14 @@ def _load_script(stem):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
+
+
+def _prune_out_of_range():
+    db.init_db()
+    conn = db.get_connection()
+    deleted = db.delete_out_of_range_financials(conn)
+    conn.close()
+    print(f"Deleted {deleted} out-of-range fiscal year row(s).")
 
 
 def main():
@@ -37,21 +48,25 @@ def main():
     args = p.parse_args()
 
     steps = [
-        "backfill_stockholders_equity",
-        "backfill_div_yield",
-        "backfill_roic",
-        "backfill_struct_checks",
+        ("prune_out_of_range", _prune_out_of_range),
+        ("backfill_stockholders_equity", None),
+        ("backfill_div_yield", None),
+        ("backfill_roic", None),
+        ("backfill_struct_checks", None),
     ]
 
     if args.dry_run:
-        for name in steps:
+        for name, _ in steps:
             print(f"DRY-RUN would run: {name}")
         return
 
-    for name in steps:
+    for name, fn in steps:
         print(f"=== {name} ===")
-        mod = _load_script(name)
-        mod.main()
+        if fn is not None:
+            fn()
+        else:
+            mod = _load_script(name)
+            mod.main()
     print("backfill_all done.")
 
 

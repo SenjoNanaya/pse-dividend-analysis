@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <!-- Minimal EDGE-shaped canary: scale note + type1 BS/IS captions the parser expects. -->
+  <p class="textCont">Currency : Philippine Peso (Thousands)</p>
+  <table class="type1" id="FS1">
+    <caption>Statements of Financial Position</caption>
+    <tr>
+      <td></td>
+      <td>Dec 31, 2025</td>
+      <td>Dec 31, 2024</td>
+    </tr>
+    <tr>
+      <td>Total Assets</td>
+      <td>10,000</td>
+      <td>9,000</td>
+    </tr>
+    <tr>
+      <td>Total Liabilities</td>
+      <td>4,000</td>
+      <td>3,600</td>
+    </tr>
+    <!-- Must NOT treat "liabilities and equity" as liabilities. -->
+    <tr>
+      <td>Total liabilities and stockholders' equity</td>
+      <td>10,000</td>
+      <td>9,000</td>
+    </tr>
+    <tr>
+      <td>Total Stockholders' Equity</td>
+      <td>6,000</td>
+      <td>5,400</td>
+    </tr>
+  </table>
+  <table class="type1" id="IS1">
+    <caption>Statements of Income</caption>
+    <tr>
+      <td></td>
+      <td>Dec 31, 2025</td>
+      <td>Dec 31, 2024</td>
+    </tr>
+    <tr>
+      <td>Gross revenue</td>
+      <td>3,000</td>
+      <td>2,700</td>
+    </tr>
+    <tr>
+      <td>Net income attributable to parent</td>
+      <td>0</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <td>Net income/(loss) after tax</td>
+      <td>500</td>
+      <td>450</td>
+    </tr>
+    <tr>
+      <td>Earnings per share (basic)</td>
+      <td>0.50</td>
+      <td>0.45</td>
+    </tr>
+  </table>
+</body>
+</html>

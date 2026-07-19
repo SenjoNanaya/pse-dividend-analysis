@@ -39,8 +39,13 @@ class PSEScraper:
         response = self.session.post(url, params=params, headers=headers, data=data)
         return response.text
     
-    def fetch_disclosures_search(self, cmpy_id, disclosure_type):
-        logger.info(f"Searching disclosures '{disclosure_type}' for company: {cmpy_id}")
+    def fetch_disclosures_search(self, cmpy_id, disclosure_type, *, page_no=None):
+        logger.info(
+            "Searching disclosures '%s' for company: %s%s",
+            disclosure_type,
+            cmpy_id,
+            f" page={page_no}" if page_no is not None else "",
+        )
 
         headers = {
             **DEFAULT_HEADERS,
@@ -52,13 +57,61 @@ class PSEScraper:
         
         data = {
             'keyword': cmpy_id,
-            'tmplNm': disclosure_type
+            'tmplNm': disclosure_type,
+            'sortType': 'date',
+            'dateSortType': 'DESC',
+            'cmpySortType': 'ASC',
         }
+        if page_no is not None:
+            data['pageNo'] = str(page_no)
         
         url = f"{self.base_url}/companyDisclosures/search.ax"
         response = self.session.post(url, headers=headers, data=data)
         return response.text
-    
+
+    def fetch_all_disclosure_edge_numbers(
+        self,
+        cmpy_id,
+        disclosure_type,
+        *,
+        max_pages: int = 20,
+        parse_edge_numbers=None,
+    ) -> list[str]:
+        """
+        Paginate ``search.ax`` (pageNo) and return unique edge_nos newest-first.
+        """
+        if parse_edge_numbers is None:
+            from src.parser import parse_disclosure_edge_numbers
+
+            parse_edge_numbers = parse_disclosure_edge_numbers
+
+        import re
+
+        seen: set[str] = set()
+        ordered: list[str] = []
+        total_pages = 1
+        for page in range(1, max(1, max_pages) + 1):
+            html = self.fetch_disclosures_search(
+                cmpy_id, disclosure_type, page_no=page
+            )
+            m = re.search(
+                r"\[\s*(\d+)\s*/\s*(\d+)\s*\]",
+                html or "",
+            )
+            if m:
+                total_pages = max(total_pages, int(m.group(2)))
+            edges = parse_edge_numbers(html)
+            if not edges:
+                break
+            for e in edges:
+                if e in seen:
+                    continue
+                seen.add(e)
+                ordered.append(e)
+            if page >= total_pages:
+                break
+        return ordered
+
     def fetch_disclosure_viewer(self, edge_no):
         logger.info(f"Fetching disclosure viewer for edge_no: {edge_no}")
         

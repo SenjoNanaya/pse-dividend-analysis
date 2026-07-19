@@ -9,6 +9,11 @@ from src.utils import logger, random_delay
 from src import db
 from src.db import get_connection, init_db
 from src import parser
+from src.field_sources import (
+    init_sources_from_metrics,
+    remap_sources_for_db,
+    set_source,
+)
 from src.report_metrics import (
     compute_screening_summary,
     incomplete_reasons,
@@ -22,6 +27,47 @@ from src.pdf_roic_extract import (
     plausible_fiscal_years,
 )
 from src.scale_guard import harmonize_yearly_pl_scale, repair_thousand_scale_jumps
+
+
+def _enforce_pe_roic_invariants(conn, company_id, *, ticker, pe, roic):
+    """Log and null any PE/ROIC that slipped past resolve/sanitize."""
+    from src.parser import (
+        NON_OPERATING_PE_TICKERS,
+        PE_COMPUTE_ABS_MAX,
+        SECONDARY_LISTING_TICKERS,
+    )
+    from src.utils import safe_float
+
+    t = (ticker or "").strip().upper()
+    pe_v = safe_float(pe)
+    roic_v = safe_float(roic)
+    issues = []
+    clear_pe = False
+    clear_roic = False
+
+    if pe_v is not None:
+        if pe_v == 0 or abs(pe_v) > PE_COMPUTE_ABS_MAX:
+            issues.append(f"pe={pe_v}")
+            clear_pe = True
+        if t in SECONDARY_LISTING_TICKERS or t in NON_OPERATING_PE_TICKERS:
+            issues.append(f"pe_on_special_ticker={pe_v}")
+            clear_pe = True
+    if roic_v is not None and abs(roic_v) > 1.0:
+        issues.append(f"roic={roic_v}")
+        clear_roic = True
+
+    if not issues:
+        return
+    logger.warning("PE/ROIC invariant fail %s: %s", t or company_id, "; ".join(issues))
+    if clear_pe:
+        conn.execute(
+            "UPDATE companies SET pe_ratio = NULL WHERE id = ?", (company_id,)
+        )
+    if clear_roic:
+        conn.execute(
+            "UPDATE companies SET roic = NULL WHERE id = ?", (company_id,)
+        )
+    conn.commit()
 
 
 def parse_args(argv=None):
@@ -237,23 +283,14 @@ def process_company(conn, scraper, item):
                     "ticker": stock_info.get("ticker"),
                 },
             )
+        else:
+            for _y, _row in yearly_metrics.items():
+                if "_field_sources" not in _row:
+                    init_sources_from_metrics(_row, "html")
 
-        historical_shares = {}
-        share_search_html = scraper.fetch_disclosures_search(cmpy_id, "Shares")
-        share_edges = parser.parse_disclosure_edge_numbers(share_search_html)
-
-        for edge_no in share_edges:
-            viewer_html = scraper.fetch_disclosure_viewer(edge_no)
-            iframe_link = parser.parse_iframe_source(viewer_html)
-            if iframe_link:
-                referer = f"https://edge.pse.com.ph/openDiscViewer.do?edge_no={edge_no}"
-                report_html = scraper.fetch_report_html(iframe_link, referer)
-                disc_data = parser.parse_report_html(report_html)
-                if disc_data.get("type") == "form17c":
-                    year = disc_data.get("year")
-                    shares = disc_data.get("common_shares_outstanding")
-                    if year and shares:
-                        historical_shares[year] = shares
+        historical_shares = parser.collect_historical_shares(
+            scraper, cmpy_id
+        )
 
         fiscal_years = plausible_fiscal_years(list(yearly_metrics.keys()))
         for y in list(yearly_metrics.keys()):
@@ -271,6 +308,17 @@ def process_company(conn, scraper, item):
         for year, shares in share_by_year.items():
             if year in yearly_metrics:
                 yearly_metrics[year]["outstanding_shares"] = shares
+                # Tag disclosure history (17-C / 17-12-A) even when mapped via FY±1
+                src = "html"
+                for y in (year, year + 1, year - 1):
+                    if y in historical_shares and historical_shares[y] is not None:
+                        try:
+                            if abs(float(historical_shares[y]) - float(shares)) < 1.0:
+                                src = "form17c"
+                                break
+                        except (TypeError, ValueError):
+                            pass
+                set_source(yearly_metrics[year], "outstanding_shares", src)
 
         yearly_metrics, scale_actions = repair_thousand_scale_jumps(
             yearly_metrics,
@@ -325,6 +373,11 @@ def process_company(conn, scraper, item):
         financial_rows = []
         for year, metrics in yearly_metrics.items():
             year_ratios = disclosure_ratios.get(year, {})
+            if year_ratios.get("current_ratio") is not None:
+                set_source(metrics, "current_ratio", "disclosure")
+            if year_ratios.get("quick_ratio") is not None:
+                set_source(metrics, "quick_ratio", "disclosure")
+            sources = remap_sources_for_db(metrics.get("_field_sources"))
             financial_data = {
                 "revenue": metrics.get("gross_revenue"),
                 "net_income": metrics.get("net_income"),
@@ -343,10 +396,18 @@ def process_company(conn, scraper, item):
                 "cost_of_sales": metrics.get("cost_of_sales"),
                 "interest_expense": metrics.get("interest_expense"),
                 "other_expenses": metrics.get("other_expenses"),
+                "total_loans": metrics.get("total_loans"),
+                "total_deposits": metrics.get("total_deposits"),
+                "npl": metrics.get("npl"),
+                "net_interest_income": metrics.get("net_interest_income"),
+                "allowance_for_credit_losses": metrics.get(
+                    "allowance_for_credit_losses"
+                ),
                 "statement_scope": metrics.get("statement_scope"),
                 "current_ratio": year_ratios.get("current_ratio"),
                 "quick_ratio": year_ratios.get("quick_ratio"),
                 "outstanding_shares": metrics.get("outstanding_shares"),
+                "field_sources": sources,
             }
             has_core = any(
                 financial_data.get(k) is not None
@@ -374,6 +435,14 @@ def process_company(conn, scraper, item):
                 continue
             db.insert_financials(conn, company_id, year, financial_data)
             financial_rows.append({"fiscal_year": year, **financial_data})
+
+        pruned = db.delete_out_of_range_financials(conn, company_id=company_id)
+        if pruned:
+            logger.info(
+                "Pruned %s out-of-range fiscal year row(s) for %s",
+                pruned,
+                cmpy_id,
+            )
 
         company_for_screen = {
             "name": company_name,
@@ -403,6 +472,14 @@ def process_company(conn, scraper, item):
             debt_to_equity=screening.get("debt_to_equity"),
             check_struct_pass=screening.get("check_struct_pass"),
             check_struct_eval=screening.get("check_struct_eval"),
+        )
+
+        _enforce_pe_roic_invariants(
+            conn,
+            company_id,
+            ticker=stock_info.get("ticker") or item.get("ticker"),
+            pe=stock_info.get("pe_ratio"),
+            roic=screening.get("roic"),
         )
 
         reasons = incomplete_reasons(company_for_screen, financial_rows)
