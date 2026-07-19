@@ -39,6 +39,11 @@ SCALE_ABSOLUTE_KEYS = (
     "cost_of_sales",
     "interest_expense",
     "other_expenses",
+    "total_loans",
+    "total_deposits",
+    "npl",
+    "net_interest_income",
+    "allowance_for_credit_losses",
 )
 
 

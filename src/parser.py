@@ -21,11 +21,43 @@ ABSOLUTE_METRICS = [
     'cost_of_sales',
     'interest_expense',
     'other_expenses',
+    'total_loans',
+    'total_deposits',
+    'npl',
+    'net_interest_income',
+    'allowance_for_credit_losses',
 ]
 
 # Profitability ratios on Form 17-A are usually reported as percentages (e.g. 14.54 = 14.54%).
 # Some EDGE tables already store fractions (0.19 = 19%) — see normalize_percent_ratio.
 PERCENT_RATIO_KEYS = {'roe', 'roa', 'net_profit_margin', 'gross_profit_margin'}
+
+# PSE secondary listings of foreign parents: PHP price vs home-market EPS yields junk PE.
+SECONDARY_LISTING_TICKERS = frozenset({"MFC", "SLF"})
+
+# ETF / closed-end funds: company-style PE is not meaningful.
+NON_OPERATING_PE_TICKERS = frozenset({"FMETF", "FFI"})
+
+# Display / API still hide |PE| > 1000; persist uses the tighter compute ceiling.
+PE_ABSURD_ABS = 1000
+# Max |PE| kept on companies.pe_ratio (scraped, FR, or computed).
+PE_COMPUTE_ABS_MAX = 100
+
+
+def sanitize_pe_for_persist(pe) -> float | None:
+    """Drop missing, zero, or rich/absurd PE before writing companies.pe_ratio."""
+    v = safe_float(pe)
+    if v is None or v == 0 or abs(v) > PE_COMPUTE_ABS_MAX:
+        return None
+    return v
+
+
+def _pe_missing(value) -> bool:
+    """True when PE should be refilled (None, blank, or placeholder zero)."""
+    if value in (None, ""):
+        return True
+    v = safe_float(value)
+    return v is None or v == 0
 
 
 def normalize_percent_ratio(raw_value) -> float | None:
@@ -258,21 +290,77 @@ def resolve_valuation_fallbacks(stock_info, yearly_metrics, filing_prices=None, 
     elif stock.get("last_traded_price") not in (None, ''):
         stock["last_traded_price"] = None
 
-    price = stock.get("last_traded_price")
-    eps = latest.get("eps")
+    price = safe_float(stock.get("last_traded_price"))
+    eps = safe_float(latest.get("eps"))
+    ni = safe_float(latest.get("net_income"))
     book_value = latest.get("book_value_per_share") or stock.get("stock_book_value")
+    ticker = (stock.get("ticker") or "").strip().upper()
+    is_secondary = ticker in SECONDARY_LISTING_TICKERS
+    is_fund = ticker in NON_OPERATING_PE_TICKERS
+    skip_compute_pe = is_secondary or is_fund
 
-    def _ratio_looks_bad(value, upper=1000):
+    from src.report_metrics import earnings_usable_for_valuation
+
+    def _ratio_looks_bad(value, upper=PE_ABSURD_ABS):
         v = safe_float(value)
-        return v is None or abs(v) > upper
+        return v is None or v == 0 or abs(v) > upper
 
-    if stock.get("pe_ratio") in (None, '') or price_was_corrected or _ratio_looks_bad(stock.get("pe_ratio")):
-        if latest_ratios.get("pe_ratio") is not None and not price_was_corrected:
-            stock["pe_ratio"] = latest_ratios["pe_ratio"]
+    def _pe_needs_refill(value):
+        v = safe_float(value)
+        return _pe_missing(value) or v is None or abs(v) > PE_COMPUTE_ABS_MAX
+
+    if (
+        _pe_needs_refill(stock.get("pe_ratio"))
+        or price_was_corrected
+        or _ratio_looks_bad(stock.get("pe_ratio"))
+    ):
+        fr_pe = sanitize_pe_for_persist(latest_ratios.get("pe_ratio"))
+        if fr_pe is not None and not price_was_corrected:
+            stock["pe_ratio"] = fr_pe
             stock["pe_source"] = "disclosure_fr"
-        elif price and eps:
-            stock["pe_ratio"] = price / eps
-            stock["pe_source"] = "computed"
+        elif (
+            price
+            and eps
+            and not skip_compute_pe
+            and eps != 0
+        ):
+            computed = price / eps
+            if (
+                earnings_usable_for_valuation(eps, ni)
+                and abs(computed) <= PE_COMPUTE_ABS_MAX
+            ):
+                stock["pe_ratio"] = computed
+                stock["pe_source"] = "computed"
+            else:
+                stock["pe_ratio"] = None
+                stock["pe_source"] = "near_zero_eps_blank"
+        else:
+            stock["pe_ratio"] = None
+            if is_secondary:
+                stock["pe_source"] = "secondary_listing_blank"
+            elif is_fund:
+                stock["pe_source"] = "fund_pe_blank"
+
+    # Secondary listings / funds: only trust disclosure FR PE that passes sanitize.
+    if is_secondary or is_fund:
+        blank_src = "secondary_listing_blank" if is_secondary else "fund_pe_blank"
+        if stock.get("pe_source") == "disclosure_fr":
+            stock["pe_ratio"] = sanitize_pe_for_persist(stock.get("pe_ratio"))
+            if stock["pe_ratio"] is None:
+                stock["pe_source"] = blank_src
+        else:
+            stock["pe_ratio"] = None
+            stock["pe_source"] = blank_src
+    else:
+        stock["pe_ratio"] = sanitize_pe_for_persist(stock.get("pe_ratio"))
+        if stock["pe_ratio"] is None and stock.get("pe_source") == "computed":
+            stock["pe_source"] = "absurd_pe_blank"
+
+    # Loss years: never keep a positive PE (stale EDGE cell over negative EPS).
+    pe_final = safe_float(stock.get("pe_ratio"))
+    if pe_final is not None and pe_final > 0 and not earnings_usable_for_valuation(eps, ni):
+        stock["pe_ratio"] = None
+        stock["pe_source"] = "loss_year_pe_blank"
 
     if stock.get("pb_ratio") in (None, '') or price_was_corrected or _ratio_looks_bad(stock.get("pb_ratio")):
         if latest_ratios.get("pb_ratio") is not None and not price_was_corrected:
@@ -546,6 +634,56 @@ def parse_disclosure_edge_numbers(html_text):
         edge_numbers.append(onclick[start:end])
     return edge_numbers
 
+
+_SHARE_DISC_TYPES = ("form17c", "form1712a")
+
+
+def collect_historical_shares(scraper, cmpy_id, *, max_pages: int = 20) -> dict[int, float]:
+    """
+    Fetch EDGE ``tmplNm=Shares`` (paginated) and parse Form 17-C / 17-12-A
+    common outstanding shares keyed by report / period year.
+
+    Newest disclosure wins per calendar year (search is date DESC).
+    """
+    from src.utils import logger
+
+    historical: dict[int, float] = {}
+    try:
+        share_edges = scraper.fetch_all_disclosure_edge_numbers(
+            cmpy_id, "Shares", max_pages=max_pages
+        )
+    except Exception as exc:
+        logger.warning("Shares search failed cmpy=%s: %s", cmpy_id, exc)
+        return historical
+
+    for edge_no in share_edges:
+        try:
+            viewer_html = scraper.fetch_disclosure_viewer(edge_no)
+            iframe_link = parse_iframe_source(viewer_html)
+            if not iframe_link:
+                continue
+            referer = f"https://edge.pse.com.ph/openDiscViewer.do?edge_no={edge_no}"
+            report_html = scraper.fetch_report_html(iframe_link, referer)
+            disc_data = parse_report_html(report_html)
+            if disc_data.get("type") not in _SHARE_DISC_TYPES:
+                continue
+            year = disc_data.get("year")
+            shares = disc_data.get("common_shares_outstanding")
+            if not year or shares is None:
+                continue
+            y = int(year)
+            # Keep first (newest) for each year
+            if y not in historical:
+                historical[y] = float(shares)
+        except Exception as exc:
+            logger.warning(
+                "Shares disclosure parse failed cmpy=%s edge=%s: %s",
+                cmpy_id,
+                edge_no,
+                exc,
+            )
+    return historical
+
 def parse_iframe_source(html_text):
     soup = _make_soup(html_text)
     iframes = soup.find_all('iframe')
@@ -707,12 +845,58 @@ def _label_matches_metric(label, pat, metric):
     if metric == 'interest_expense':
         if 'interest income' in text or 'investment income' in text:
             return False
+        if 'net interest' in text:
+            return False
         if 'from financing' in text:
             return False
     if metric == 'other_expenses':
         if len(text.strip()) > 48:
             return False
         if 'income' in text and 'operating' not in text:
+            return False
+    if metric == 'total_loans':
+        if 'non-performing' in text or 'non performing' in text or 'npl' in text:
+            return False
+        if 'allowance' in text or 'provision' in text:
+            return False
+        if 'credit-impaired' in text or 'credit impaired' in text:
+            return False
+        # P&L interest-income lines share "loans and advances" wording
+        if 'interest income' in text or 'interest on' in text:
+            return False
+        if re.search(r'\bon\s+loans\b', text):
+            return False
+        if 'income on loans' in text or 'income from loans' in text:
+            return False
+        if len(text.strip()) > 72:
+            return False
+    if metric == 'total_deposits':
+        if 'cash and short-term deposits' in text or 'cash and short term deposits' in text:
+            return False
+        if 'term deposit' in text and 'liabilit' not in text and 'customer' not in text:
+            # Asset-side placements — not deposit liabilities
+            if 'due to' not in text and 'deposit liabilities' not in text:
+                return False
+    if metric == 'npl':
+        if 'ratio' in text or '%' in text or 'coverage' in text:
+            return False
+        if 'breakdown' in text or 'net of allowance' in text:
+            return False
+        if len(text.strip()) > 72:
+            return False
+    if metric == 'allowance_for_credit_losses':
+        if 'deferred' in text or 'undrawn' in text or 'tax' in text:
+            return False
+        if 'impairment losses' in text and 'allowance' not in text:
+            return False
+        if 'increased to' in text or 'increase of' in text:
+            return False
+        if len(text.strip()) > 72:
+            return False
+    if metric == 'net_interest_income':
+        if 'expense' in text and 'income' not in text:
+            return False
+        if 'interest income' in text and 'net interest' not in text:
             return False
     if metric == 'stockholders_equity':
         if 'liabilit' in text:
@@ -1110,16 +1294,101 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
             'other operating expenses',
             'other expenses',
         ],
+        'npl': [
+            'total non-performing loans',
+            'total non-performing',
+            'non-performing loans',
+            'non performing loans',
+            'nonperforming loans',
+            'credit-impaired loans',
+            'credit impaired loans',
+            'stage 3 loans',
+            'past due and non-performing',
+        ],
+        'allowance_for_credit_losses': [
+            'allowance for credit losses',
+            'allowance for probable losses',
+            'allowance for impairment',
+            'allowance for credit and impairment losses',
+            'allowance for loan losses',
+            'allowance for expected credit losses',
+        ],
+        'total_loans': [
+            'loans and other receivables - net',
+            'loans and other receivables–net',
+            'loans and other receivables',
+            'loans and receivables at amortized cost',
+            'loans and receivables - net of allowance',
+            'loans and receivables–net of allowance',
+            'loans and receivables - net',
+            'loans and receivables–net',
+            'loans and receivables',
+            'loans and advances - net',
+            'loans and advances–net',
+            'loans and advances',
+            'loans - net',
+            'loans–net',
+            'net loans and receivables',
+            'net loans',
+            'total loans and receivables',
+            'total loans',
+        ],
+        'total_deposits': [
+            'deposit liabilities',
+            'due to depositors',
+            'deposits from customers',
+            'total deposit liabilities',
+            'total deposits',
+        ],
+        'net_interest_income': [
+            'net interest income',
+            'net interest revenue',
+        ],
         'book_value_per_share': ['book value per share'],
-        'gross_revenue': ['gross revenue'],
+        'gross_revenue': [
+            'gross revenue',
+            'total revenue',
+            'revenues',
+            'revenue',
+            'net sales',
+            'sales and services',
+            'service income',
+            'rental income',
+        ],
+        'equity_in_earnings': [
+            'equity in net earnings of associates',
+            'equity in net earnings of associates and joint ventures',
+            'equity in net earnings',
+            'share in net earnings of associates',
+            'share of profit of associates',
+        ],
+        'interest_income': [
+            'interest income',
+            'interest and other income',
+            'investment income',
+        ],
         'net_income': [
             'net income/(loss) after tax',
             'net income after tax',
             'net income/(loss) attributable to parent',
+            'net income attributable to equity holders of the parent',
             'net income attributable to parent',
+            'net income attributable to owners of the parent',
+            'profit attributable to equity holders',
+            'profit for the year',
             'net income',
         ],
-        'eps': ['earnings per share (basic)', 'earnings/(loss) per share (basic)', 'earnings per share', 'eps'],
+        'eps': [
+            'earnings per share (basic)',
+            'earnings/(loss) per share (basic)',
+            'basic and diluted earnings per share',
+            'basic/diluted earnings per share',
+            'earnings/(loss) per share',
+            'loss per share (basic)',
+            'basic earnings per share',
+            'earnings per share',
+            'eps',
+        ],
     }
     
     for col in combined.columns:
@@ -1178,7 +1447,106 @@ def extract_all_years_metrics(tables_list, scale_factor=1):
         yearly_results[year] = sanitize_operating_metrics(metrics)
     return yearly_results
 
+
+def _parse_form_1712a_shares(html_text: str, soup) -> dict | None:
+    """
+    Form 17-12-A List of Top 100 Stockholders (Common Shares).
+
+    EDGE ``tmplNm=Shares`` returns these for most issuers; without this parse
+    path, share history collapses to the stock-page point estimate (1 year).
+    """
+    low = (html_text or "").lower()
+    if "17-12-a" not in low and "top 100 stockholder" not in low:
+        return None
+
+    title = ""
+    for tag in soup.find_all(["h1", "h2", "h3", "h4"]):
+        title = tag.get_text(" ", strip=True).lower()
+        if title:
+            break
+    if "preferred" in title and "common" not in title:
+        return {
+            "type": "form1712a",
+            "year": None,
+            "date": None,
+            "common_shares_outstanding": None,
+        }
+
+    shares = None
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+            if len(cells) < 2:
+                continue
+            label = cells[0].lower()
+            if "number of outstanding common shares" not in label:
+                continue
+            digits = re.sub(r"[^\d]", "", cells[1])
+            if digits:
+                shares = int(digits)
+                break
+        if shares is not None:
+            break
+
+    date_text = None
+    year = None
+
+    # EDGE tables split label/value across cells: "For the period ended" | "Jun 30, 2026"
+    for table in soup.find_all("table"):
+        for row in table.find_all("tr"):
+            cells = [c.get_text(" ", strip=True) for c in row.find_all(["td", "th"])]
+            if len(cells) < 2:
+                continue
+            label = cells[0].lower()
+            if "period ended" not in label and "period ending" not in label:
+                continue
+            date_text = cells[1]
+            ym = re.search(r"\d{4}", date_text or "")
+            if ym:
+                year = int(ym.group())
+            break
+        if year is not None:
+            break
+
+    # Prose / joined-text fallbacks (fixtures; older HTML without typed rows)
+    if year is None:
+        blob = soup.get_text(" ", strip=True)
+        for pat in (
+            r"(?:for\s+the\s+)?period\s+end(?:ed|ing)\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"as of(?:\s+the\s+period\s+end(?:ed|ing))?\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"as of\s+(\d{1,2}[/-]\d{1,2}[/-]\d{4})",
+        ):
+            m = re.search(pat, blob, re.I)
+            if m:
+                date_text = m.group(1)
+                ym = re.search(r"\d{4}", date_text)
+                if ym:
+                    year = int(ym.group())
+                break
+
+    if year is None:
+        dt = soup.find("dt", string=lambda t: t and "Date of Report" in t)
+        if dt and dt.find_next("dd"):
+            span = dt.find_next("dd").find("span", class_="valInput")
+            date_text = (
+                span.get_text(strip=True)
+                if span
+                else dt.find_next("dd").get_text(strip=True)
+            )
+            ym = re.search(r"\d{4}", date_text or "")
+            if ym:
+                year = int(ym.group())
+
+    return {
+        "type": "form1712a",
+        "year": year,
+        "date": date_text,
+        "common_shares_outstanding": shares,
+    }
+
+
 def parse_report_html(html_text):
+
     soup = _make_soup(html_text)
     table_elements = soup.find_all("table", class_="type1", id=True)
     
@@ -1225,7 +1593,13 @@ def parse_report_html(html_text):
             'type': 'form17c', 'year': year, 'date': date_text,
             'common_shares_outstanding': shares, "scale_factor": scale_factor
         }
-    
+
+    # Form 17-12-A / Top 100 Stockholders — EDGE tmplNm=Shares for most issuers
+    form_1712a = _parse_form_1712a_shares(html_text, soup)
+    if form_1712a is not None:
+        form_1712a["scale_factor"] = scale_factor
+        return form_1712a
+
     year = None
     header = soup.find('th', string=lambda t: t and 'fiscal year ended' in t.lower()) or \
              soup.find('th', string=lambda t: t and 'for the year ended' in t.lower())

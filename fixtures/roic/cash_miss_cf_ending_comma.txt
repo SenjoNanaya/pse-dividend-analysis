@@ -1,0 +1,17 @@
+STATEMENTS OF CASH FLOWS
+For the years ended December 31, 2024 and 2023
+
+Cash flows from operating activities
+Net income                                     50,000,000       40,000,000
+Net cash from operating activities            120,000,000      100,000,000
+
+Cash flows from investing activities
+Net cash used in investing activities         (30,000,000)     (20,000,000)
+
+Cash flows from financing activities
+Net cash used in financing activities         (10,000,000)     (15,000,000)
+
+Net increase in cash and cash equivalents      80,000,000       65,000,000
+Cash and cash equivalents at beginning of year
+                                              200,000,000      135,000,000
+Cash and cash equivalents, end of year        280,000,000      200,000,000

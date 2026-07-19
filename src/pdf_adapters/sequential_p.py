@@ -8,11 +8,14 @@ from typing import Any
 from src.pdf_adapters.common import detect_years_in_text, extract_amounts_from_line, row_dict
 
 _HEADER_NOISE = re.compile(
-    r"^(notes?|december|years?\s+ended|assets|liabilities and equity|equity|revenue|"
+    r"^(notes?|december|years?\s+ended|assets|liabilities and equity|"
+    r"equity$|revenue$|"
     r"see accompanying|page\s+\d+|sgvfs|\*sgvfs)",
     re.I,
 )
 _NOTE_ONLY = re.compile(r"^\(?notes?\s*\d+[a-z]?\)?$", re.I)
+# Bare footnote index between label and P= amounts (AB / SPC style)
+_BARE_NOTE_REF = re.compile(r"^\d{1,2}[a-z]?$", re.I)
 _SECTION_HDR = re.compile(
     r"^(current assets|noncurrent assets|non-current assets|current liabilities|"
     r"noncurrent liabilities|non-current liabilities|other income|cost of services)$",
@@ -26,7 +29,7 @@ def _strip_notes(label: str) -> str:
     return re.sub(r"\s+", " ", text).strip(" -–—")
 
 
-def _significant_amounts(line: str) -> list[float]:
+def _significant_amounts(line: str, *, allow_per_share: bool = False) -> list[float]:
     """Ignore bare note numbers; prefer P= lines and comma-formatted magnitudes."""
     if _NOTE_ONLY.match(line.strip()):
         return []
@@ -35,6 +38,10 @@ def _significant_amounts(line: str) -> list[float]:
     has_p = "p=" in cleaned.lower() or "₱" in cleaned
     amounts = extract_amounts_from_line(cleaned)
     if has_p:
+        return amounts
+    low = cleaned.lower()
+    if allow_per_share or "per share" in low or re.search(r"\beps\b", low):
+        # EPS / BVPS are fractional pesos — keep sub-1000 values
         return amounts
     # Keep only magnitudes that cannot be footnote indices
     return [a for a in amounts if abs(a) >= 1000]
@@ -81,18 +88,19 @@ def parse_sequential_p(text: str, years: list[int] | None = None) -> list[dict[s
         label = _strip_notes(line)
         # Remove trailing amounts from same-line labels
         if amounts_same:
-            label = re.split(r"P=|\d{1,3}(?:,\d{3})+", label, maxsplit=1)[0]
+            label = re.split(r"P=|\d{1,3}(?:,\d{3})+|0\.\d+", label, maxsplit=1)[0]
             label = _strip_notes(label)
 
+        per_share = "per share" in label.lower() or re.search(r"\beps\b", label.lower())
         collected = list(amounts_same)
         j = i + 1
         # Wrap continuation labels (e.g. GENERAL AND ADMINISTRATIVE / EXPENSES)
         while j < len(lines) and len(collected) < max(len(years) or 2, 2):
             nxt = lines[j]
-            if _NOTE_ONLY.match(nxt):
+            if _NOTE_ONLY.match(nxt) or _BARE_NOTE_REF.match(nxt.strip()):
                 j += 1
                 continue
-            amts = _significant_amounts(nxt)
+            amts = _significant_amounts(nxt, allow_per_share=bool(per_share))
             labelish = re.sub(r"[\d,.\sP=()₱\-–—]", "", nxt)
             if amts and len(labelish) <= 2:
                 collected.extend(amts)
@@ -103,6 +111,9 @@ def parse_sequential_p(text: str, years: list[int] | None = None) -> list[dict[s
                     break
                 # continuation of label
                 label = _strip_notes(f"{label} {nxt}")
+                per_share = per_share or (
+                    "per share" in label.lower() or bool(re.search(r"\beps\b", label.lower()))
+                )
                 j += 1
                 continue
             break

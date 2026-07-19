@@ -69,10 +69,16 @@ class Financial(models.Model):
     cost_of_sales = models.FloatField(blank=True, null=True)
     interest_expense = models.FloatField(blank=True, null=True)
     other_expenses = models.FloatField(blank=True, null=True)
+    total_loans = models.FloatField(blank=True, null=True)
+    total_deposits = models.FloatField(blank=True, null=True)
+    npl = models.FloatField(blank=True, null=True)
+    net_interest_income = models.FloatField(blank=True, null=True)
+    allowance_for_credit_losses = models.FloatField(blank=True, null=True)
     statement_scope = models.TextField(blank=True, null=True)
     current_ratio = models.FloatField(blank=True, null=True)
     quick_ratio = models.FloatField(blank=True, null=True)
     outstanding_shares = models.FloatField(blank=True, null=True)
+    field_sources = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.company.symbol} - {self.fiscal_year}"

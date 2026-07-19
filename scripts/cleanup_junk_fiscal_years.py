@@ -1,13 +1,14 @@
 """
-Delete junk fiscal-year rows created by mis-parsed PDF year detection
-(e.g. 2031, 2050) and recompute screening summaries.
+Delete junk fiscal-year rows (year < 1995 or > current calendar year)
+and recompute screening summaries.
+
+Prefer: python scripts/backfill_all.py (includes this prune as step 0).
 
 Usage (from repo root):
   python scripts/cleanup_junk_fiscal_years.py
 """
 import os
 import sys
-from datetime import date
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -20,29 +21,13 @@ from src.report_metrics import compute_screening_summary
 def main():
     db.init_db()
     conn = db.get_connection()
-    max_year = date.today().year
-    cur = conn.cursor()
-    junk = cur.execute(
-        """
-        SELECT id, company_id, fiscal_year
-        FROM financials
-        WHERE fiscal_year < 1995 OR fiscal_year > ?
-        """,
-        (max_year,),
-    ).fetchall()
-    if not junk:
-        print("No junk fiscal-year rows found.")
+    deleted = db.delete_out_of_range_financials(conn)
+    if deleted:
+        print(f"Deleted {deleted} junk financial row(s).")
     else:
-        ids = [r["id"] for r in junk]
-        cur.executemany("DELETE FROM financials WHERE id = ?", [(i,) for i in ids])
-        conn.commit()
-        print(f"Deleted {len(ids)} junk financial row(s):")
-        for r in junk[:20]:
-            print(f"  company_id={r['company_id']} year={r['fiscal_year']}")
-        if len(junk) > 20:
-            print(f"  ... and {len(junk) - 20} more")
+        print("No junk fiscal-year rows found.")
 
-    # Rebuild screening so CHECKS / dilution reflect cleaned years
+    cur = conn.cursor()
     companies = cur.execute(
         "SELECT id, name, ticker, pe_ratio, pb_ratio, roe, market_cap, "
         "outstanding_shares, last_traded_price FROM companies"

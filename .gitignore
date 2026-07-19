@@ -18,6 +18,9 @@ docs/
 !data/.gitkeep
 !logs/.gitkeep
 !tests/.gitkeep
+# Committed sample DB for one-command demo (see scripts/run_demo.py)
+!fixtures/demo/
+!fixtures/demo/**
 # ==========================================
 # Python Artifacts & Caches
 # ==========================================
@@ -50,6 +53,9 @@ Thumbs.db
 
 staticfiles/
 .cursor
+.impeccable/
+DESIGN.md
+PRODUCT.md
 
 # ==========================================
 # Frontend (Vite / Node)

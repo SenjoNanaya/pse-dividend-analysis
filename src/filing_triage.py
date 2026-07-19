@@ -51,6 +51,111 @@ def is_financial_sector(sector: str | None, subsector: str | None = None) -> boo
     return any(h in blob for h in _FINANCIAL_SECTOR_HINTS)
 
 
+def is_banks_subsector(sector: str | None, subsector: str | None = None) -> bool:
+    """
+    Deposit-taking banks (PSE subsector Banks).
+
+    Loan / deposit / NPL / NII / ACL checklist fields apply here only.
+    Brokers and other FIs stay on equity ROIC via is_financial_sector.
+    """
+    sub = (subsector or "").lower()
+    if "bank" in sub:
+        return True
+    # Some rows put Banks in sector with an empty subsector
+    sec = (sector or "").lower().strip()
+    return sec in ("banks", "bank")
+
+
+def allows_revenue_surrogate(
+    sector: str | None,
+    subsector: str | None = None,
+    *,
+    financials: list | None = None,
+) -> bool:
+    """
+    Holdings, miners/oil, and similar names often lack commercial sales.
+
+    Interest income / equity in associates / gross revenue may stand in for
+    the screening revenue gate. Never for deposit banks (NII is separate).
+
+    Also allows shells in any non-bank sector when every stored year has
+    null/zero revenue but net income is present (ACE/APC/APL pattern).
+    """
+    if is_banks_subsector(sector, subsector):
+        return False
+    blob = f"{sector or ''} {subsector or ''}".lower()
+    hints = (
+        "holding",
+        "mining",
+        "oil",
+        "oil and gas",
+        "exploration",
+        "other financial institutions",
+        # Shells / explorers filed under Services with no commercial sales line
+        "other services",
+        "hotel",
+        "leisure",
+        "information technology",
+        "property",
+        "construction",
+        "infra",
+        "services",
+    )
+    if any(h in blob for h in hints):
+        return True
+    if financials and all_years_zero_revenue(financials):
+        from src.utils import safe_float
+
+        if any(safe_float(f.get("net_income")) is not None for f in financials):
+            return True
+    return False
+
+
+def all_years_zero_revenue(financials: list[dict] | None) -> bool:
+    """True when every stored year has null/zero commercial revenue."""
+    from src.report_metrics import metric_value
+
+    rows = list(financials or [])
+    if not rows:
+        return False
+    for f in rows:
+        if metric_value(f.get("revenue"), "revenue") is not None:
+            return False
+    return True
+
+
+def is_etf_sector(sector: str | None, subsector: str | None = None) -> bool:
+    """True for PSE ETF listings (no commercial sales line)."""
+    blob = f"{sector or ''} {subsector or ''}".lower()
+    return "etf" in blob
+
+
+def waives_revenue_completeness(
+    company: dict | None,
+    financials: list | None,
+) -> bool:
+    """
+    Chronic no-top-line issuers may screen without commercial revenue.
+
+    True when every stored year lacks usable revenue, or the name is a
+    deposit bank / ETF. One-year P&L holes (prior year has revenue) return False.
+    """
+    company = company or {}
+    rows = list(financials or [])
+    if is_banks_subsector(company.get("sector"), company.get("subsector")):
+        return True
+    if is_etf_sector(company.get("sector"), company.get("subsector")):
+        return True
+    return all_years_zero_revenue(rows)
+
+
+def _has_high_value_filing_signal(name: str) -> bool:
+    """True when the name looks like a 17-A / AFS even if glossy words appear too."""
+    if any(pat in name for pat in _HIGH_PATTERNS):
+        return True
+    return bool(_PART_RE.search(name))
+
+
 def _score_attachment(filename: str) -> tuple[int, int, int]:
     """
     Return sort key: higher score first, then prefer consolidated, then earlier part.
@@ -60,9 +165,10 @@ def _score_attachment(filename: str) -> tuple[int, int, int]:
     if not name or name == "select":
         return (-10_000, 0, 0)
 
-    for pat in _SKIP_PATTERNS:
-        if pat in name:
-            return (-5_000, 0, 0)
+    # Combined packs e.g. "17-A Report and Sustainability Report.pdf" must NOT
+    # be skipped — 17-A / AFS signals win over glossy keywords.
+    if any(pat in name for pat in _SKIP_PATTERNS) and not _has_high_value_filing_signal(name):
+        return (-5_000, 0, 0)
 
     score = 0
     for pat in _HIGH_PATTERNS:

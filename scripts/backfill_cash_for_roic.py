@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +51,11 @@ _METRIC_TO_DB = {
     "income_tax_expense": "income_tax_expense",
     "gross_profit": "gross_profit",
     "ga_expense": "ga_expense",
+    "total_loans": "total_loans",
+    "total_deposits": "total_deposits",
+    "npl": "npl",
+    "net_interest_income": "net_interest_income",
+    "allowance_for_credit_losses": "allowance_for_credit_losses",
     "statement_scope": "statement_scope",
 }
 
@@ -97,6 +103,11 @@ def _to_db_row(metrics: dict) -> dict:
         "ga_expense",
         "income_before_tax",
         "income_tax_expense",
+        "total_loans",
+        "total_deposits",
+        "npl",
+        "net_interest_income",
+        "allowance_for_credit_losses",
         "statement_scope",
     ):
         if key not in row and metrics.get(key) is not None:
@@ -104,21 +115,84 @@ def _to_db_row(metrics: dict) -> dict:
     return row
 
 
-def _extract_from_cached_pdfs(cmpy_id: str) -> dict[int, dict]:
+def _extract_from_cached_pdfs(cmpy_id: str, *, max_pdfs: int = 6) -> dict[int, dict]:
+    """Re-extract ranked local PDFs under data/filings/{EDGE cmpy_id}/."""
     base = os.path.join("data", "filings", str(cmpy_id))
     if not os.path.isdir(base):
         return {}
-    candidates = []
+    pdfs: list[str] = []
     for root, _, files in os.walk(base):
         for name in files:
-            if not name.lower().endswith(".pdf"):
-                continue
-            path = os.path.join(root, name)
-            yearly = extract_roic_metrics_from_pdf_path(path, filename_hint=name)
-            if yearly:
-                sample = next(iter(yearly.values()))
-                scope = sample.get("statement_scope") or "unknown"
-                candidates.append((scope, yearly))
+            if name.lower().endswith(".pdf"):
+                pdfs.append(os.path.join(root, name))
+    if not pdfs:
+        return {}
+
+    def _rank(path: str) -> tuple[int, float]:
+        """Prefer AFS/FS packs; demote 17-L, SR-only, certifications."""
+        name = os.path.basename(path).lower()
+        try:
+            mtime = -os.path.getmtime(path)
+        except OSError:
+            mtime = 0.0
+        # Hard demotes (review often sampled these and got empty cash)
+        if "17-l" in name or "17_l" in name or "form-17-l" in name:
+            return (9, mtime)
+        if any(
+            s in name
+            for s in (
+                "certification",
+                "mineral_resource",
+                "annex_a_sr",
+                "sustainability_report.pdf",
+            )
+        ) and not any(s in name for s in ("17-a", "17a", "afs", "audited")):
+            return (8, mtime)
+        if "sustainability" in name and not any(
+            s in name for s in ("17-a", "17a", "afs", "audited", "financial")
+        ):
+            return (8, mtime)
+
+        score = 5
+        if any(
+            s in name
+            for s in (
+                "afs",
+                "audited_financial",
+                "audited financial",
+                "financial_statement",
+                "financial statement",
+                "_fs_",
+                "-fs-",
+                "separate_fs",
+                "conso_fs",
+                "parent_afs",
+            )
+        ):
+            score = 0
+        elif any(
+            s in name
+            for s in ("17-a", "17a", "sec_form_17", "sec form 17", "annual_report")
+        ):
+            score = 1
+        # Prefer parent/separate/conso FS naming when present
+        if any(s in name for s in ("parent", "separate", "conso", "consolidat")):
+            score = max(0, score - 0)
+        # Prefer filenames that mention recent fiscal years
+        if re.search(r"202[4-6]", name):
+            mtime -= 0.1  # slight tie-break toward dated packs
+        return (score, mtime)
+
+    pdfs.sort(key=_rank)
+    candidates = []
+    for path in pdfs[: max(1, max_pdfs)]:
+        yearly = extract_roic_metrics_from_pdf_path(
+            path, filename_hint=os.path.basename(path)
+        )
+        if yearly:
+            sample = next(iter(yearly.values()))
+            scope = sample.get("statement_scope") or "unknown"
+            candidates.append((scope, yearly))
     if not candidates:
         return {}
     return prefer_scope_metrics(candidates)
@@ -261,7 +335,9 @@ def main() -> None:
         ticker = co["ticker"]
         try:
             if args.cached_pdfs_only:
-                pdf_yearly = _extract_from_cached_pdfs(cmpy_id)
+                pdf_yearly = _extract_from_cached_pdfs(
+                    cmpy_id, max_pdfs=args.max_pdfs
+                )
                 # Seed HTML side from DB so fill-nulls keep asset anchors / non-nulls
                 html_seed = {}
                 for r in cur.execute(
@@ -270,7 +346,9 @@ def main() -> None:
                            total_assets, total_liabilities, stockholders_equity,
                            total_current_liabilities, cash_and_equivalents,
                            operating_income, income_before_tax, income_tax_expense,
-                           gross_profit, ga_expense, statement_scope
+                           gross_profit, ga_expense,
+                           total_loans, total_deposits, npl, net_interest_income,
+                           outstanding_shares, statement_scope
                     FROM financials WHERE company_id=?
                     """,
                     (co["id"],),
@@ -281,7 +359,16 @@ def main() -> None:
                     if row.get("revenue") is not None:
                         row["gross_revenue"] = row["revenue"]
                     html_seed[y] = row
-                yearly = fill_html_whitelist(html_seed, pdf_yearly)
+                yearly = fill_html_whitelist(
+                    html_seed,
+                    pdf_yearly,
+                    company={
+                        "sector": co.get("sector"),
+                        "subsector": co.get("subsector"),
+                        "ticker": ticker,
+                        "outstanding_shares": co.get("outstanding_shares"),
+                    },
+                )
             else:
                 yearly = _extract_live(scraper, cmpy_id, max_pdfs=args.max_pdfs)
 
@@ -318,14 +405,30 @@ def main() -> None:
                         company_cash_fills += 1
                     continue
 
-                filled = db.fill_financial_nulls(
+                lifted = db.overwrite_financial_scale_lift(
                     conn, co["id"], int(year), db_row, commit=False
+                )
+                # Attach field_sources so eps derived/pdf tags stick
+                if metrics.get("_field_sources"):
+                    db_row["_field_sources"] = metrics["_field_sources"]
+                filled = db.fill_financial_nulls(
+                    conn,
+                    co["id"],
+                    int(year),
+                    db_row,
+                    commit=False,
+                    treat_zero_as_null=("eps",),
                 )
                 if "cash_and_equivalents" in filled:
                     company_cash_fills += 1
                     filled_cash_rows += 1
+                note_parts = []
+                if lifted:
+                    note_parts.append(f"lift:{','.join(lifted)}")
                 if filled:
-                    all_fills.append(f"FY{year}:{','.join(filled)}")
+                    note_parts.append(",".join(filled))
+                if note_parts:
+                    all_fills.append(f"FY{year}:{';'.join(note_parts)}")
 
             if args.dry_run:
                 if company_cash_fills:
