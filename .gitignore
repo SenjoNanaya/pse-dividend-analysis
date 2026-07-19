@@ -53,6 +53,9 @@ Thumbs.db
 
 staticfiles/
 .cursor
+.impeccable/
+DESIGN.md
+PRODUCT.md
 
 # ==========================================
 # Frontend (Vite / Node)
