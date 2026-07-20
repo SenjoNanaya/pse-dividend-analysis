@@ -13,8 +13,23 @@ export const EMPTY_WATCHLIST_THRESHOLDS = {
   deMax: '',
 };
 
+function hasAnyThresholdValue(thresholds) {
+  return Object.values(thresholds || {}).some((v) => String(v ?? '').trim() !== '');
+}
+
+/** Missing flag: blank alert fields → follow list; any stored values → detached. */
+function migrateAlertsFollowList(raw, thresholds) {
+  if (typeof raw === 'boolean') return raw;
+  return !hasAnyThresholdValue(thresholds);
+}
+
 function emptyState() {
-  return { ids: [], meta: {}, thresholds: { ...EMPTY_WATCHLIST_THRESHOLDS } };
+  return {
+    ids: [],
+    meta: {},
+    thresholds: { ...EMPTY_WATCHLIST_THRESHOLDS },
+    alertsFollowList: true,
+  };
 }
 
 function normalizeIds(rawIds) {
@@ -57,10 +72,12 @@ export function loadWatchlist() {
   const v2 = readRaw(STORAGE_KEY);
   if (v2) {
     const ids = normalizeIds(v2.ids);
+    const thresholds = normalizeThresholds(v2.thresholds);
     return {
       ids,
       meta: normalizeMeta(v2.meta, ids),
-      thresholds: normalizeThresholds(v2.thresholds),
+      thresholds,
+      alertsFollowList: migrateAlertsFollowList(v2.alertsFollowList, thresholds),
     };
   }
   const v1 = readRaw(STORAGE_KEY_V1);
@@ -70,6 +87,7 @@ export function loadWatchlist() {
       ids,
       meta: normalizeMeta(v1.meta, ids),
       thresholds: { ...EMPTY_WATCHLIST_THRESHOLDS },
+      alertsFollowList: true,
     };
     return saveWatchlist(migrated);
   }
@@ -78,10 +96,15 @@ export function loadWatchlist() {
 
 export function saveWatchlist(state) {
   const ids = normalizeIds(state.ids);
+  const thresholds = normalizeThresholds(state.thresholds);
   const next = {
     ids,
     meta: normalizeMeta(state.meta, ids),
-    thresholds: normalizeThresholds(state.thresholds),
+    thresholds,
+    alertsFollowList:
+      typeof state.alertsFollowList === 'boolean'
+        ? state.alertsFollowList
+        : migrateAlertsFollowList(undefined, thresholds),
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -95,10 +118,27 @@ export function getWatchlistThresholds(state) {
   return normalizeThresholds(state?.thresholds);
 }
 
-export function setWatchlistThresholds(state, thresholds) {
+export function getAlertsFollowList(state) {
+  return Boolean(state?.alertsFollowList);
+}
+
+/**
+ * @param {object} state
+ * @param {object|null|undefined} thresholds — omit/null to keep current
+ * @param {{ followList?: boolean }} [opts]
+ */
+export function setWatchlistThresholds(state, thresholds, opts = {}) {
+  const nextThresh =
+    thresholds != null
+      ? normalizeThresholds(thresholds)
+      : normalizeThresholds(state.thresholds);
   return saveWatchlist({
     ...state,
-    thresholds: normalizeThresholds(thresholds),
+    thresholds: nextThresh,
+    alertsFollowList:
+      typeof opts.followList === 'boolean'
+        ? opts.followList
+        : state.alertsFollowList,
   });
 }
 
@@ -151,6 +191,7 @@ export function pruneWatchlistIds(state, keepIds) {
 }
 
 export function clearWatchlist() {
+  saveSignalSnapshot({});
   return saveWatchlist(emptyState());
 }
 

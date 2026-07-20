@@ -6,6 +6,16 @@ export function safeNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Narrow shortlist identity line under ticker (sector · subsector). */
+export function formatSectorSubsectorLine(company) {
+  const sector = String(company?.sector || '').trim();
+  const sub = String(company?.subsector || '').trim();
+  if (sector && sub && sector.toLowerCase() !== sub.toLowerCase()) {
+    return `${sector} · ${sub}`;
+  }
+  return sector || sub || '';
+}
+
 /** Keep in sync with src/report_metrics.py DEFAULT_THRESHOLDS */
 export const DEFAULT_THRESHOLDS = {
   peMax: 22,
@@ -13,6 +23,69 @@ export const DEFAULT_THRESHOLDS = {
   roeMin: 0.1,
   deMax: 2,
 };
+
+function formatRuleNum(n) {
+  if (!Number.isFinite(n)) return '—';
+  if (Number.isInteger(n)) return String(n);
+  const rounded = Math.round(n * 1000) / 1000;
+  return String(rounded);
+}
+
+/**
+ * Human-readable live screening rules from UI filter strings.
+ * Blank P/E, P/B, ROE, D/E still use DEFAULT_THRESHOLDS (list + checklist).
+ * Blank yield / ROIC means no floor (optional only).
+ */
+export function describeLiveScreeningRules(ui = {}) {
+  const peRaw = String(ui.peMax ?? '').trim();
+  const pbRaw = String(ui.pbMax ?? '').trim();
+  const roeRaw = String(ui.roeMin ?? '').trim();
+  const deRaw = String(ui.deMax ?? '').trim();
+  const yldRaw = String(ui.yieldMin ?? '').trim();
+  const roicRaw = String(ui.roicMin ?? '').trim();
+
+  const peN = Number(peRaw);
+  const pbN = Number(pbRaw);
+  const roeN = Number(roeRaw);
+  const deN = Number(deRaw);
+  const yldN = Number(yldRaw);
+  const roicN = Number(roicRaw);
+
+  const pe = peRaw !== '' && Number.isFinite(peN) ? peN : DEFAULT_THRESHOLDS.peMax;
+  const pb = pbRaw !== '' && Number.isFinite(pbN) ? pbN : DEFAULT_THRESHOLDS.pbMax;
+  const roePct =
+    roeRaw !== '' && Number.isFinite(roeN)
+      ? roeN
+      : DEFAULT_THRESHOLDS.roeMin * 100;
+  const de = deRaw !== '' && Number.isFinite(deN) ? deN : DEFAULT_THRESHOLDS.deMax;
+
+  const parts = [
+    `P/E < ${formatRuleNum(pe)}`,
+    `P/B < ${formatRuleNum(pb)}`,
+    `ROE ≥ ${formatRuleNum(roePct)}%`,
+    `D/E < ${formatRuleNum(de)}`,
+  ];
+  if (yldRaw !== '' && Number.isFinite(yldN)) {
+    parts.push(`Yield ≥ ${formatRuleNum(yldN)}%`);
+  }
+  if (roicRaw !== '' && Number.isFinite(roicN)) {
+    parts.push(`ROIC ≥ ${formatRuleNum(roicN)}%`);
+  }
+
+  const usingDefaults =
+    peRaw === '' && pbRaw === '' && roeRaw === '' && deRaw === '';
+
+  const joined = parts.join(' · ');
+  return {
+    line: `Live rules: ${joined}`,
+    /** Narrow chrome — drop the “Live rules:” prefix so tokens fit two lines. */
+    compactLine: joined,
+    title: usingDefaults
+      ? 'Blank limit fields still use these defaults for the company list and checklist. Yield and ROIC floors apply only when you set them.'
+      : 'Active thresholds for the company list and checklist. Any blank core field still falls back to P/E 22, P/B 1, ROE 10%, or D/E 2.',
+    usingDefaults,
+  };
+}
 
 /** Bank structural floors — keep in sync with src/report_metrics.py */
 export const BANK_LDR_MAX = 1.05;
@@ -86,6 +159,79 @@ export function normalizeThresholds(thresholds) {
     roeMin: roeMin != null ? roeMin : DEFAULT_THRESHOLDS.roeMin,
     deMax: deMax != null ? deMax : DEFAULT_THRESHOLDS.deMax,
   };
+}
+
+/**
+ * Pass/fail cue for registry/watchlist table cells vs screening thresholds.
+ * Returns { signal: 'pass'|'fail'|null, title }.
+ * Optional floors (yieldMin / roicMin) only apply when set — blank means no cue.
+ */
+export function registryCellSignal(kind, value, thresholds = {}, extras = {}) {
+  const n = safeNum(value);
+  const t = normalizeThresholds(thresholds);
+
+  if (kind === 'checks') {
+    if (extras.qualified === true) {
+      return { signal: 'pass', title: 'Qualified — more than 5 checks passed' };
+    }
+    if (extras.passCount != null && extras.total != null && extras.total > 0) {
+      return {
+        signal: 'fail',
+        title: `${extras.passCount}/${extras.total} checks — not qualified`,
+      };
+    }
+    return { signal: null, title: 'Checks unavailable' };
+  }
+
+  if (n == null) return { signal: null, title: 'No value' };
+
+  switch (kind) {
+    case 'pe':
+      if (n <= 0) return { signal: 'fail', title: 'P/E not meaningful (≤ 0)' };
+      return n < t.peMax
+        ? { signal: 'pass', title: `P/E under ${t.peMax}` }
+        : { signal: 'fail', title: `P/E at or above ${t.peMax}` };
+    case 'pb':
+      if (n < 0) return { signal: 'fail', title: 'P/B not meaningful (< 0)' };
+      return n < t.pbMax
+        ? { signal: 'pass', title: `P/B under ${t.pbMax}` }
+        : { signal: 'fail', title: `P/B at or above ${t.pbMax}` };
+    case 'roe':
+      return n > t.roeMin
+        ? { signal: 'pass', title: `ROE above ${Math.round(t.roeMin * 100)}%` }
+        : { signal: 'fail', title: `ROE at or below ${Math.round(t.roeMin * 100)}%` };
+    case 'roic': {
+      const floor = safeNum(extras.roicMin);
+      if (floor == null) {
+        return { signal: null, title: 'No return minimum set' };
+      }
+      return n >= floor
+        ? { signal: 'pass', title: `Return at or above ${Math.round(floor * 100)}%` }
+        : { signal: 'fail', title: `Return below ${Math.round(floor * 100)}%` };
+    }
+    case 'de':
+      if (n < 0) return { signal: null, title: 'D/E not applicable' };
+      return n < t.deMax
+        ? { signal: 'pass', title: `D/E under ${t.deMax}` }
+        : { signal: 'fail', title: `D/E at or above ${t.deMax}` };
+    case 'yield': {
+      const floor = safeNum(extras.yieldMin);
+      if (floor == null) {
+        return { signal: null, title: 'No yield minimum set' };
+      }
+      return n >= floor
+        ? { signal: 'pass', title: `Yield at or above ${Math.round(floor * 100)}%` }
+        : { signal: 'fail', title: `Yield below ${Math.round(floor * 100)}%` };
+    }
+    default:
+      return { signal: null, title: '' };
+  }
+}
+
+export function cellSignalClass(signal) {
+  if (signal === 'pass') return 'nier-cell-signal nier-cell-signal--pass';
+  if (signal === 'fail') return 'nier-cell-signal nier-cell-signal--fail';
+  return 'nier-cell-signal';
 }
 
 /** Total liabilities ÷ equity (NA for financials / missing / non-positive equity). */
@@ -640,6 +786,7 @@ export function registryDataStatus(company) {
     return {
       level: 'bad',
       label: 'INCOMPLETE',
+      shortLabel: 'INC',
       title: tokens.map(formatDataWarning).join('; '),
     };
   }
@@ -647,10 +794,16 @@ export function registryDataStatus(company) {
     return {
       level: 'warn',
       label: 'WARN',
+      shortLabel: 'WARN',
       title: actionable.map(formatDataWarning).join('; '),
     };
   }
-  return { level: 'ok', label: '—', title: 'Complete' };
+  return {
+    level: 'ok',
+    label: 'OK',
+    shortLabel: 'OK',
+    title: 'Core filing fields look complete',
+  };
 }
 
 const SOURCE_LETTER = {

@@ -12,13 +12,19 @@ function formatNewsDate(iso) {
   });
 }
 
-export default function TickerNews({ companyId, ticker, compact = false }) {
+export default function TickerNews({
+  companyId,
+  ticker,
+  /** Nested under a report disclosure — skip the duplicate section heading. */
+  embedded = false,
+}) {
   const [status, setStatus] = useState(companyId == null ? 'idle' : 'loading');
   const [items, setItems] = useState([]);
   const [error, setError] = useState(null);
   const [hiddenCount, setHiddenCount] = useState(0);
   const [showAll, setShowAll] = useState(false);
   const [ambiguous, setAmbiguous] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
 
   useEffect(() => {
     setShowAll(false);
@@ -71,23 +77,17 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
       });
 
     return () => { cancelled = true; };
-  }, [companyId, showAll]);
-
-  const sectionClass = compact ? 'report-news report-news--compact' : 'report-news';
-  const visible = compact ? items.slice(0, 6) : items;
+  }, [companyId, showAll, retryTick]);
 
   return (
-    <section className={sectionClass} aria-label={`News for ${ticker || 'selected ticker'}`}>
-      {!compact && (
-        <>
-          <h2 className="report-section-label">News</h2>
-          <p className="report-note report-news-note">
-            Headlines from Google News (Philippines). Headlines that don&apos;t clearly match
-            this ticker are hidden
-            {ambiguous ? ' (short tickers use a stricter match)' : ''}. Links open in a new tab.
-          </p>
-        </>
-      )}
+    <section className="report-news" aria-label={`News for ${ticker || 'selected ticker'}`}>
+      {!embedded && <h2 className="report-section-label">News</h2>}
+      <p className="report-note report-news-note">
+        Optional depth after you shortlist — not a live feed. Headlines from Google News
+        (Philippines); ones that don&apos;t clearly match this ticker are hidden
+        {ambiguous ? ' (short tickers use a stricter match)' : ''}. Filings remain the source of
+        truth. Links open in a new tab.
+      </p>
 
       {status === 'idle' && (
         <div className="report-news-status nier-msg-plain" role="status">
@@ -103,7 +103,16 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
 
       {status === 'error' && (
         <div className="report-news-status nier-msg-plain" role="alert">
-          {error || "Couldn't load news for this ticker. Try again in a moment."}
+          <p className="report-news-error-detail">
+            {error || "Couldn't load news for this ticker. Try again in a moment."}
+          </p>
+          <button
+            type="button"
+            className="nier-btn nier-btn--compact"
+            onClick={() => setRetryTick((n) => n + 1)}
+          >
+            Retry
+          </button>
         </div>
       )}
 
@@ -117,7 +126,7 @@ export default function TickerNews({ companyId, ticker, compact = false }) {
 
       {status === 'ready' && items.length > 0 && (
         <ul className="report-news-list">
-          {visible.map((item) => (
+          {items.map((item) => (
             <li key={item.link} className="report-news-item">
               <a
                 href={item.link}

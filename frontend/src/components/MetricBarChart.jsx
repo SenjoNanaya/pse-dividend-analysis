@@ -10,18 +10,12 @@ import {
   YAxis,
 } from 'recharts';
 import { summarizeSeries } from '../lib/chartSummary';
+import { formatChartNumber, formatChartValue } from '../lib/chartUnits';
 import { CHART_SURFACE, CHART_TYPE, METRIC_COLORS } from '../lib/nierPalette';
-
-function formatLabel(v) {
-  if (v == null || Number.isNaN(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 100) return v.toFixed(0);
-  if (abs >= 10) return v.toFixed(1);
-  return v.toFixed(2);
-}
 
 export default function MetricBarChart({
   title,
+  unit,
   data,
   color = METRIC_COLORS.bookValue,
   height = 200,
@@ -29,11 +23,22 @@ export default function MetricBarChart({
 }) {
   const hasData = Array.isArray(data) && data.some((d) => d.value != null);
   const { axis, grid, tooltipBg, trend } = CHART_SURFACE;
-  const summary = summarizeSeries(title, data, formatLabel);
+  const summary = summarizeSeries(
+    unit ? `${title} (${unit})` : title,
+    data,
+    (v) => formatChartValue(v, unit),
+  );
 
   return (
     <div className="report-chart-card" role="img" aria-label={summary}>
-      <div className="report-chart-title" aria-hidden="true">{title}</div>
+      <div className="report-chart-head" aria-hidden="true">
+        <div className="report-chart-title">{title}</div>
+        {unit ? (
+          <div className="report-chart-unit">
+            Values in <span className="report-chart-unit-value">{unit}</span>
+          </div>
+        ) : null}
+      </div>
       {!hasData ? (
         <div className="report-chart-empty" aria-hidden="true">No data</div>
       ) : (
@@ -52,9 +57,10 @@ export default function MetricBarChart({
                 axisLine={false}
                 tickLine={false}
                 width={52}
+                tickFormatter={(v) => formatChartNumber(v)}
               />
               <Tooltip
-                formatter={(value) => formatLabel(Number(value))}
+                formatter={(value) => [formatChartValue(Number(value), unit), unit || 'Value']}
                 contentStyle={{
                   fontSize: CHART_TYPE.tooltip,
                   borderRadius: 0,
@@ -67,7 +73,7 @@ export default function MetricBarChart({
                 <LabelList
                   dataKey="value"
                   position="top"
-                  formatter={(v) => formatLabel(Number(v))}
+                  formatter={(v) => formatChartValue(Number(v), unit)}
                   style={{ fontSize: CHART_TYPE.label, fill: axis, fontWeight: 600 }}
                 />
               </Bar>

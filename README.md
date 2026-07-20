@@ -254,7 +254,34 @@ MAX_DELAY=5.5
 DB_PATH=data/pse_analysis.db
 ```
 
-Local Vite talks to `http://127.0.0.1:8000` when `VITE_API_BASE` is unset. Copy [`frontend/.env.example`](frontend/.env.example) if you need to override.
+Unset / empty `VITE_API_BASE` means same-origin `/api` (Vite proxies to `:8000` in dev). For a remote API (Vercel + Render), set the absolute origin; see [`frontend/.env.example`](frontend/.env.example).
+
+## Cloudflare Tunnel (free, from your PC)
+
+Runs Django locally, serves the built SPA from the same origin, and publishes a temporary `https://*.trycloudflare.com` URL. No open inbound ports. Your machine must stay on; the URL changes every run. Quick tunnels cap at 200 in-flight requests.
+
+1. Install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) and put it on PATH.
+2. Have a DB at `data/pse_analysis.db` (or pass `--seed-demo`).
+3. From the repo root:
+
+```bash
+python scripts/run_tunnel.py
+python scripts/run_tunnel.py --seed-demo
+python scripts/run_tunnel.py --skip-build
+```
+
+Open the printed Public URL. Ctrl+C stops Django and the tunnel.
+
+Manual equivalent after `cd frontend && npm run build`:
+
+```bash
+# allow the trycloudflare Host header (PowerShell: $env:DJANGO_ALLOWED_HOSTS="...")
+export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,.trycloudflare.com
+python manage.py runserver 127.0.0.1:8000
+cloudflared tunnel --url http://127.0.0.1:8000
+```
+
+For a stable hostname on your own domain, use a [named Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) pointed at `http://127.0.0.1:8000` instead of Quick Tunnel.
 
 ## Deploy (Vercel UI + Render API)
 

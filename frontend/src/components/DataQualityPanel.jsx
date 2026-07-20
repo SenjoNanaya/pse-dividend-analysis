@@ -42,7 +42,7 @@ const GRID_COLS_BANK = [
   { key: 'shares', label: 'Shares' },
 ];
 
-export default function DataQualityPanel({ quality, compact = false }) {
+export default function DataQualityPanel({ quality, compact = false, sheet = false }) {
   if (!quality) return null;
 
   const { summary, yearCount } = quality;
@@ -74,8 +74,8 @@ export default function DataQualityPanel({ quality, compact = false }) {
         {warn && (
           <div className="dq-compact-counts dq-warn nier-msg-plain">Warning: {warn}</div>
         )}
-        <details className="dq-compact-detail">
-          <summary>Data detail</summary>
+        {/* Sheet: one disclosure only — nested detail cramped/overlapped on SE */}
+        {sheet ? (
           <div className="dq-compact-counts">
             CORE {summary.coreYears}/{yearCount} yrs
             {' · '}
@@ -95,12 +95,35 @@ export default function DataQualityPanel({ quality, compact = false }) {
             {' · '}
             CHECK NA {quality.checklistNa}/{quality.checklistNa + quality.checklistEval}
           </div>
-          {quality.cashDivYears > 0 && (
-            <div className="dq-compact-counts dq-muted">
-              CASH DIV YEARS {quality.cashDivYears}
+        ) : (
+          <details className="dq-compact-detail">
+            <summary>Data detail</summary>
+            <div className="dq-compact-counts">
+              CORE {summary.coreYears}/{yearCount} yrs
+              {' · '}
+              {bankMode ? (
+                <>
+                  LOANS {summary.withLoans ?? 0}
+                  {' · '}
+                  NII {summary.withNii ?? 0}
+                  {' · '}
+                  NPL {summary.withNpl ?? 0}
+                </>
+              ) : (
+                <>CASH {summary.withCash}</>
+              )}
+              {' · '}
+              SHARES {summary.withShares}
+              {' · '}
+              CHECK NA {quality.checklistNa}/{quality.checklistNa + quality.checklistEval}
             </div>
-          )}
-        </details>
+            {quality.cashDivYears > 0 && (
+              <div className="dq-compact-counts dq-muted">
+                CASH DIV YEARS {quality.cashDivYears}
+              </div>
+            )}
+          </details>
+        )}
       </div>
     );
   }

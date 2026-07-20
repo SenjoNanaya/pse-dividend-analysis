@@ -147,15 +147,13 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
   const showCharts = panel === 'charts' || panel === 'both';
 
   return (
-    <main id="main-content" className="compare-page animate-fade-in">
+    <main id="main-content" className="compare-page nier-view-settle">
       <header className="compare-topbar">
-        <div className="flex items-center gap-3 flex-wrap">
-          <button type="button" className="nier-btn" onClick={onBack}>
+        <div className="compare-topbar-lead">
+          <button type="button" className="nier-btn nier-btn--compact" onClick={onBack}>
             Back to list
           </button>
-          <h1 className="nier-title compare-heading">
-            COMPARE_MATRIX
-          </h1>
+          <h1 className="nier-chrome-title compare-heading">Compare</h1>
         </div>
         <div
           className="compare-panel-toggle"
@@ -183,9 +181,9 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
           }}
         >
           {[
-            { id: 'metrics', label: 'METRICS', controls: 'compare-panel-metrics' },
-            { id: 'charts', label: 'CHARTS', controls: 'compare-panel-charts' },
-            { id: 'both', label: 'BOTH', controls: 'compare-panel-metrics compare-panel-charts' },
+            { id: 'metrics', label: 'Metrics', controls: 'compare-panel-metrics' },
+            { id: 'charts', label: 'Charts', controls: 'compare-panel-charts' },
+            { id: 'both', label: 'Both', controls: 'compare-panel-metrics compare-panel-charts' },
           ].map((opt) => (
             <button
               key={opt.id}
@@ -195,7 +193,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
               aria-selected={panel === opt.id}
               aria-controls={opt.controls}
               tabIndex={panel === opt.id ? 0 : -1}
-              className={panel === opt.id ? 'nier-btn compare-tab-active' : 'nier-btn'}
+              className={`nier-btn nier-btn--compact${panel === opt.id ? ' compare-tab-active' : ''}`}
               onClick={() => setPanel(opt.id)}
             >
               {opt.label}
@@ -236,7 +234,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
             role="tabpanel"
             aria-labelledby={panel === 'both' ? 'compare-tab-both' : 'compare-tab-metrics'}
           >
-            <div className="compare-section-label">Metric Matrix</div>
+            <h2 className="compare-section-label">Metric Matrix</h2>
             <div className="compare-table-wrap">
               <table className="compare-table">
                 <thead>
@@ -418,7 +416,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
             aria-label="Chart comparison"
             aria-labelledby={panel === 'both' ? 'compare-tab-both' : 'compare-tab-charts'}
           >
-            <div className="compare-section-label">Chart Compare — YoY</div>
+            <h2 className="compare-section-label">Chart Compare — YoY</h2>
             <p className="compare-note compare-note--tight">
               Each graph overlays the selected tickers on a shared timeline (same scale per metric).
             </p>
@@ -431,6 +429,7 @@ export default function CompareView({ picks, onBack, onRemove, onOpen, threshold
                 <CompareChart
                   key={def.key}
                   title={def.title}
+                  unit={def.unit}
                   reports={reports}
                   chartKey={def.key}
                 />

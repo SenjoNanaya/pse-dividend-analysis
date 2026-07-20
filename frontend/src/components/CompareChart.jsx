@@ -9,16 +9,8 @@ import {
   YAxis,
 } from 'recharts';
 import { summarizeCompare } from '../lib/chartSummary';
+import { formatChartNumber, formatChartValue } from '../lib/chartUnits';
 import { CHART_SURFACE, CHART_TYPE, COMPARE_SERIES, NIER } from '../lib/nierPalette';
-
-function formatLabel(v) {
-  if (v == null || Number.isNaN(Number(v))) return '';
-  const n = Number(v);
-  const abs = Math.abs(n);
-  if (abs >= 100) return n.toFixed(0);
-  if (abs >= 10) return n.toFixed(1);
-  return n.toFixed(2);
-}
 
 /** Align YoY series from multiple reports onto shared year rows. */
 export function mergeChartSeries(reports, chartKey) {
@@ -41,6 +33,7 @@ export function mergeChartSeries(reports, chartKey) {
 
 export default function CompareChart({
   title,
+  unit,
   reports,
   chartKey,
   height = 280,
@@ -49,11 +42,22 @@ export default function CompareChart({
   const data = mergeChartSeries(reports, chartKey);
   const hasData = data.some((row) => tickers.some((t) => row[t] != null));
   const { axis, grid, tooltipBg } = CHART_SURFACE;
-  const summary = summarizeCompare(title, data, tickers);
+  const summary = summarizeCompare(
+    unit ? `${title} (${unit})` : title,
+    data,
+    tickers,
+  );
 
   return (
     <div className="compare-chart-card" role="img" aria-label={summary}>
-      <div className="compare-chart-title" aria-hidden="true">{title}</div>
+      <div className="compare-chart-head" aria-hidden="true">
+        <div className="compare-chart-title">{title}</div>
+        {unit ? (
+          <div className="report-chart-unit">
+            Values in <span className="report-chart-unit-value">{unit}</span>
+          </div>
+        ) : null}
+      </div>
       {!hasData ? (
         <div className="compare-chart-empty" aria-hidden="true">No data</div>
       ) : (
@@ -72,10 +76,13 @@ export default function CompareChart({
                 axisLine={false}
                 tickLine={false}
                 width={60}
-                tickFormatter={(v) => formatLabel(v)}
+                tickFormatter={(v) => formatChartNumber(v)}
               />
               <Tooltip
-                formatter={(value, name) => [formatLabel(Number(value)), name]}
+                formatter={(value, name) => [
+                  formatChartValue(Number(value), unit),
+                  name,
+                ]}
                 contentStyle={{
                   fontSize: CHART_TYPE.tooltip,
                   borderRadius: 0,
@@ -109,14 +116,14 @@ export default function CompareChart({
 }
 
 export const COMPARE_CHART_DEFS = [
-  { key: 'bookValue', title: 'Book Value — YoY' },
-  { key: 'netIncome', title: 'Net Income — YoY (B PHP)' },
-  { key: 'assets', title: 'Total Assets — YoY (B PHP)' },
-  { key: 'liabilities', title: 'Total Liabilities — YoY (B PHP)' },
-  { key: 'revenue', title: 'Revenue — YoY (B PHP)' },
-  { key: 'eps', title: 'EPS — YoY' },
-  { key: 'outstandingShares', title: 'Outstanding Shares — YoY (M)' },
-  { key: 'roic', title: 'ROIC / bank capital return — YoY %' },
-  { key: 'debtEquity', title: 'Debt / Equity — YoY' },
-  { key: 'dividends', title: 'Common Dividends / Share — YoY' },
+  { key: 'bookValue', title: 'Book Value — YoY', unit: 'PHP/share' },
+  { key: 'netIncome', title: 'Net Income — YoY', unit: 'B PHP' },
+  { key: 'assets', title: 'Total Assets — YoY', unit: 'B PHP' },
+  { key: 'liabilities', title: 'Total Liabilities — YoY', unit: 'B PHP' },
+  { key: 'revenue', title: 'Revenue — YoY', unit: 'B PHP' },
+  { key: 'eps', title: 'EPS — YoY', unit: 'PHP/share' },
+  { key: 'outstandingShares', title: 'Outstanding Shares — YoY', unit: 'M shares' },
+  { key: 'roic', title: 'ROIC / bank capital return — YoY', unit: '%' },
+  { key: 'debtEquity', title: 'Debt / Equity — YoY', unit: '×' },
+  { key: 'dividends', title: 'Common Dividends / Share — YoY', unit: 'PHP/share' },
 ];

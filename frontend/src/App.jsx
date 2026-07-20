@@ -1,8 +1,21 @@
-import React, { Suspense, lazy, useState, useEffect, useCallback } from 'react';
+import React, {
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useRef,
+} from 'react';
 import NierSelect from './components/NierSelect';
 import NierShell from './components/NierShell';
 import RegistryPreview from './components/RegistryPreview';
-import TickerNews from './components/TickerNews';
+import RowKeysLegend from './components/RowKeysLegend';
+import TickerPreviewButton from './components/TickerPreviewButton';
+import { focusTickerButton } from './lib/tableRowKeys';
+import WatchToggle from './components/WatchToggle';
+import WatchColumnHeader from './components/WatchColumnHeader';
 
 /** Heavy / chart views — kept out of the registry landing bundle. */
 const CompanyReport = lazy(() => import('./components/CompanyReport'));
@@ -10,14 +23,19 @@ const CompareView = lazy(() => import('./components/CompareView'));
 const WatchlistView = lazy(() => import('./components/WatchlistView'));
 
 import {
+  cellSignalClass,
+  describeLiveScreeningRules,
   formatMarketCap,
   formatPct,
   formatPrice,
   marketCapTier,
   normalizeThresholds,
+  registryCellSignal,
   registryDataStatus,
+  formatSectorSubsectorLine,
 } from './lib/metrics';
 import {
+  EMPTY_WATCHLIST_THRESHOLDS,
   WATCHLIST_MAX,
   clearWatchlist,
   isWatched,
@@ -39,6 +57,8 @@ import {
   dismissOnboarding,
   isOnboardingDismissed,
 } from './lib/onboarding';
+import useMediaQuery from './lib/useMediaQuery';
+import useScrollLock from './lib/useScrollLock';
 import { API_BASE, FACETS_URL, jsonHeaders } from './lib/api';
 
 function ViewFallback({ label = 'Loading…' }) {
@@ -59,7 +79,7 @@ function serviceUnavailableMessage(kind = 'list') {
 const MAX_COMPARE = 4;
 const CAP_TIERS = ['MICRO', 'SMALL', 'MID', 'LARGE'];
 
-const FOCUS_STORAGE_KEY = 'edge-registry-focus';
+const FOCUS_STORAGE_KEY = 'edge-registry-focus-v3';
 
 const SORT_FIELDS = {
   ticker: 'ticker',
@@ -85,9 +105,15 @@ function formatRatio(v, digits = 2) {
   return n.toFixed(digits);
 }
 
+/**
+ * Wide table (ratio columns + preview bar) is opt-in.
+ * Default is browse-first: side preview rail, identity + trust columns only.
+ */
 function loadFocusMode() {
   try {
-    return sessionStorage.getItem(FOCUS_STORAGE_KEY) === '1';
+    const v = sessionStorage.getItem(FOCUS_STORAGE_KEY);
+    if (v === null) return false;
+    return v === '1';
   } catch {
     return false;
   }
@@ -111,6 +137,10 @@ const THRESHOLD_KEYS = ['peMax', 'pbMax', 'roeMin', 'yieldMin', 'roicMin', 'deMa
 
 function hasThresholdValues(f) {
   return THRESHOLD_KEYS.some((k) => Boolean(String(f?.[k] ?? '').trim()));
+}
+
+function hasFacetFilters(f) {
+  return Boolean(f?.sector || f?.subsector || f?.capTier || f?.incomplete);
 }
 
 function filtersEqual(a, b) {
@@ -228,7 +258,9 @@ function buildListUrl({
   return `${API_BASE}/${q ? `?${q}` : ''}`;
 }
 
-function ThresholdInput({ label, hint, value, onChange, ariaLabel }) {
+function ThresholdInput({ label, hint, title, value, onChange, ariaLabel }) {
+  const tip = title || hint;
+  const accessible = ariaLabel || label;
   return (
     <label className="nier-filter-field nier-threshold-field">
       <span>{label}</span>
@@ -238,16 +270,25 @@ function ThresholdInput({ label, hint, value, onChange, ariaLabel }) {
         step="any"
         min="0"
         placeholder={hint}
+        title={tip}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="nier-input nier-threshold-input"
-        aria-label={ariaLabel || label}
+        aria-label={tip ? `${accessible}. ${tip}` : accessible}
       />
     </label>
   );
 }
 
-function SortHeader({ label, column, ordering, onSort, className = '' }) {
+function SortHeader({
+  label,
+  shortLabel,
+  column,
+  ordering,
+  onSort,
+  className = '',
+  title,
+}) {
   const field = SORT_FIELDS[column];
   const isActive = ordering === field || ordering === `-${field}`;
   const desc = ordering === `-${field}`;
@@ -264,9 +305,17 @@ function SortHeader({ label, column, ordering, onSort, className = '' }) {
         type="button"
         className="nier-sort-btn"
         onClick={() => onSort(column)}
-        aria-label={sortHint}
+        aria-label={title ? `${sortHint}. ${title}` : sortHint}
+        title={title || label}
       >
-        {label}
+        <span className="nier-sort-label">
+          <span className="nier-sort-label--full">{label}</span>
+          {shortLabel ? (
+            <span className="nier-sort-label--short" aria-hidden="true">
+              {shortLabel}
+            </span>
+          ) : null}
+        </span>
         {isActive && (
           <span className="nier-sort-indicator" aria-hidden="true">
             {desc ? ' ▼' : ' ▲'}
@@ -277,10 +326,23 @@ function SortHeader({ label, column, ordering, onSort, className = '' }) {
   );
 }
 
+
+function shouldSkipLanding() {
+  if (isOnboardingDismissed(ONBOARD.skipLanding)) return true;
+  try {
+    const skip = new URLSearchParams(window.location.search).get('skip');
+    if (skip === '1' || skip === 'true') {
+      dismissOnboarding(ONBOARD.skipLanding);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 export default function App() {
-  const [view, setView] = useState(() =>
-    (isOnboardingDismissed(ONBOARD.skipLanding) ? 'dashboard' : 'landing'),
-  );
+  const [view, setView] = useState(() => (shouldSkipLanding() ? 'dashboard' : 'landing'));
 
   const [companies, setCompanies] = useState([]);
   const [search, setSearch] = useState('');
@@ -290,6 +352,14 @@ export default function App() {
   const [appliedFilters, setAppliedFilters] = useState(EMPTY_FILTERS);
   const [filterError, setFilterError] = useState(null);
   const appliedThresholds = screeningThresholds(appliedFilters);
+  const thresholdExtras = useMemo(() => {
+    const parsed = parseThresholdFilters(appliedFilters);
+    if (!parsed.ok) return { yieldMin: null, roicMin: null };
+    return {
+      yieldMin: parsed.yieldMinFrac,
+      roicMin: parsed.roicMinFrac,
+    };
+  }, [appliedFilters]);
   const [sectors, setSectors] = useState([]);
   const [subsectors, setSubsectors] = useState([]);
   const [sectorSubsectors, setSectorSubsectors] = useState({});
@@ -304,6 +374,8 @@ export default function App() {
   const [previewCompanyId, setPreviewCompanyId] = useState(null);
   const [previewCompany, setPreviewCompany] = useState(null);
   const [previewStatus, setPreviewStatus] = useState('idle');
+  /** When leaving a sheet into report/compare, force unlock scroll restore to this Y. */
+  const scrollLockRestoreYRef = useRef(null);
 
   const [selectedCompanyId, setSelectedCompanyId] = useState(null);
   const [companyDetails, setCompanyDetails] = useState(null);
@@ -315,9 +387,13 @@ export default function App() {
   const [watchlist, setWatchlist] = useState(() => loadWatchlist());
   const [returnView, setReturnView] = useState('dashboard');
   const [focusMode, setFocusMode] = useState(() => loadFocusMode());
-  const [thresholdsOpen, setThresholdsOpen] = useState(() => hasThresholdValues(EMPTY_FILTERS));
   const [compareMode, setCompareMode] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
+  /** Exclusive chrome: only one of facets | limits | tools at a time. */
+  const [filterPanel, setFilterPanel] = useState(null);
+  /** Sector / Limits / Tools live behind Filters until opened */
+  const [filtersMenuOpen, setFiltersMenuOpen] = useState(false);
+  /** Phone / narrow: sheet preview + shortlist columns (not side rail). */
+  const isNarrow = useMediaQuery('(max-width: 767px)');
   const [showRegistryTip, setShowRegistryTip] = useState(
     () => !isOnboardingDismissed(ONBOARD.tipRegistry),
   );
@@ -463,7 +539,7 @@ export default function App() {
     return () => ac.abort();
   }, [selectedCompanyId, detailRetry]);
 
-  const commitFilters = (nextFilters) => {
+  const commitFilters = (nextFilters, { collapseChrome = true } = {}) => {
     const parsed = parseThresholdFilters(nextFilters);
     if (!parsed.ok) {
       setFilterError(parsed.error);
@@ -472,7 +548,12 @@ export default function App() {
     setFilterError(null);
     setSearchQuery(search);
     setAppliedFilters(nextFilters);
-    if (hasThresholdValues(nextFilters)) setThresholdsOpen(true);
+    // Collapse filter chrome after Apply so the shortlist owns the viewport
+    // (especially on narrow screens). Passed live-commit keeps chrome open.
+    if (collapseChrome) {
+      setFilterPanel(null);
+      setFiltersMenuOpen(false);
+    }
     setPageUrl(null);
     setPreviewCompanyId(null);
     return true;
@@ -480,28 +561,40 @@ export default function App() {
 
   const handleSearch = (e) => {
     e.preventDefault();
+    // Search also applies any filter drafts — one commit path for Enter.
     commitFilters(filters);
   };
 
   const handleFilterChange = (key, value) => {
     setFilterError(null);
     setFilters((prev) => {
+      let next;
       if (key !== 'sector') {
-        return { ...prev, [key]: value };
+        next = { ...prev, [key]: value };
+      } else {
+        // Drop a subsector that does not belong to the newly selected sector.
+        const allowed = value && sectorSubsectors[value]
+          ? sectorSubsectors[value]
+          : null;
+        const subOk =
+          !prev.subsector
+          || !allowed
+          || allowed.some((s) => s === prev.subsector);
+        next = {
+          ...prev,
+          sector: value,
+          subsector: subOk ? prev.subsector : '',
+        };
       }
-      // Drop a subsector that does not belong to the newly selected sector.
-      const allowed = value && sectorSubsectors[value]
-        ? sectorSubsectors[value]
-        : null;
-      const subOk =
-        !prev.subsector
-        || !allowed
-        || allowed.some((s) => s === prev.subsector);
-      return {
-        ...prev,
-        sector: value,
-        subsector: subOk ? prev.subsector : '',
-      };
+      // Passed screen is live — only that field commits (Limits drafts stay pending).
+      if (key === 'qualified') {
+        queueMicrotask(() => {
+          setAppliedFilters((applied) => ({ ...applied, qualified: value }));
+          setPageUrl(null);
+          setPreviewCompanyId(null);
+        });
+      }
+      return next;
     });
   };
 
@@ -571,6 +664,9 @@ export default function App() {
   };
 
   const openCompany = (id, fromView) => {
+    // Sheet unlock would otherwise restore list scrollY and clip report Back.
+    scrollLockRestoreYRef.current = 0;
+    setPreviewCompanyId(null);
     setSelectedCompanyId(id);
     setReturnView(fromView || (view === 'watchlist' ? 'watchlist' : 'dashboard'));
     setView('report');
@@ -591,6 +687,28 @@ export default function App() {
   const clearPreview = () => {
     setPreviewCompanyId(null);
   };
+
+  useEffect(() => {
+    if (!isNarrow || previewCompanyId == null) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') clearPreview();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isNarrow, previewCompanyId]);
+
+  /** Narrow sheet owns the viewport — collapse Filters peers/panels so the list can peek. */
+  useEffect(() => {
+    if (!isNarrow || previewCompanyId == null) return;
+    setFiltersMenuOpen(false);
+    setFilterPanel(null);
+  }, [isNarrow, previewCompanyId]);
+
+  /** Tools (wide table / export) stays closed when crossing into narrow — reclaim chrome. */
+  useEffect(() => {
+    if (!isNarrow) return;
+    setFilterPanel((cur) => (cur === 'tools' ? null : cur));
+  }, [isNarrow]);
 
   const toggleWatchlistPick = useCallback((company) => {
     setWatchlist((prev) => {
@@ -628,17 +746,12 @@ export default function App() {
     setShowWatchTip(false);
   };
 
-  const showPassedOnly = () => {
-    const next = { ...filters, qualified: 'true' };
-    setFilters(next);
-    commitFilters(next);
-    dismissRegistryTip();
-  };
-
-  const previewFirstCompany = () => {
-    const first = companies[0];
-    if (first) selectCompanyPreview(first.id);
-  };
+  // Teach through action: first row preview clears the getting-started line.
+  useEffect(() => {
+    if (previewCompanyId == null || !showRegistryTip) return;
+    dismissOnboarding(ONBOARD.tipRegistry);
+    setShowRegistryTip(false);
+  }, [previewCompanyId, showRegistryTip]);
 
   const removeWatchlistPick = useCallback((id) => {
     setWatchlist((prev) => removeWatch(prev, id));
@@ -653,8 +766,12 @@ export default function App() {
       if (patch?.pruneIds) {
         return pruneWatchlistIds(prev, patch.pruneIds);
       }
-      if (patch?.thresholds) {
-        return setWatchlistThresholds(prev, patch.thresholds);
+      if (patch?.thresholds != null || typeof patch?.alertsFollowList === 'boolean') {
+        return setWatchlistThresholds(
+          prev,
+          patch.thresholds != null ? patch.thresholds : null,
+          { followList: patch.alertsFollowList },
+        );
       }
       return prev;
     });
@@ -689,9 +806,90 @@ export default function App() {
     }
   }, [searchQuery, ordering, appliedFilters]);
 
+  const liveRules = useMemo(
+    () => describeLiveScreeningRules(appliedFilters),
+    [appliedFilters],
+  );
+  const listThresholdUi = useMemo(() => {
+    const out = { ...EMPTY_WATCHLIST_THRESHOLDS };
+    for (const k of THRESHOLD_KEYS) out[k] = String(appliedFilters[k] ?? '');
+    return out;
+  }, [appliedFilters]);
+  const thresholdDraftPending = THRESHOLD_KEYS.some(
+    (k) => String(filters[k] ?? '') !== String(appliedFilters[k] ?? ''),
+  );
+  const searchDraftPending = search !== searchQuery;
+  const otherFiltersDraftPending = ['qualified', 'sector', 'subsector', 'capTier', 'incomplete']
+    .some((k) => String(filters[k] ?? '') !== String(appliedFilters[k] ?? ''));
+  const pendingShortlistMessage = (() => {
+    if (thresholdDraftPending && searchDraftPending) {
+      return isNarrow
+        ? 'Limits + search draft — Apply.'
+        : 'Limits and search not on the shortlist yet — press Apply (Search also applies).';
+    }
+    if (thresholdDraftPending) {
+      return isNarrow
+        ? 'Limits draft — Apply.'
+        : 'Limits not on the shortlist yet — press Apply.';
+    }
+    if (searchDraftPending) {
+      return isNarrow
+        ? 'Search draft — Search or Apply.'
+        : 'Search not run — press Search or Apply.';
+    }
+    if (otherFiltersDraftPending) {
+      return isNarrow
+        ? 'Filters draft — Apply.'
+        : 'Sector filters not on the shortlist yet — press Apply.';
+    }
+    return isNarrow
+      ? 'Draft — Apply.'
+      : 'Shortlist not updated yet — press Apply.';
+  })();
+  const facetsActive = hasFacetFilters(filters) || hasFacetFilters(appliedFilters);
+  const limitsActive =
+    hasThresholdValues(filters) || hasThresholdValues(appliedFilters);
+  const facetsOpen = filterPanel === 'facets';
+  const limitsOpen = filterPanel === 'limits';
+  const toolsOpen = filterPanel === 'tools';
+  const moreFiltersVisible = filtersMenuOpen || filterPanel != null;
+  const toggleFilterPanel = (panel) => {
+    setFiltersMenuOpen(true);
+    setFilterPanel((cur) => (cur === panel ? null : panel));
+  };
+  const toggleFiltersMenu = () => {
+    if (filtersMenuOpen || filterPanel != null) {
+      setFiltersMenuOpen(false);
+      setFilterPanel(null);
+      return;
+    }
+    setFiltersMenuOpen(true);
+  };
+  /** Collapse filter disclosure when entering compare pick mode (less chrome noise). */
+  const toggleComparePickMode = () => {
+    setCompareMode((prev) => {
+      const next = !prev;
+      if (next) {
+        setFiltersMenuOpen(false);
+        setFilterPanel(null);
+      }
+      return next;
+    });
+  };
+
+  // Must run before view early-returns (Rules of Hooks).
+  useScrollLock(view === 'dashboard' && isNarrow && Boolean(previewCompany), {
+    restoreYRef: scrollLockRestoreYRef,
+  });
+
+  useLayoutEffect(() => {
+    if (view !== 'report' && view !== 'compare') return;
+    window.scrollTo(0, 0);
+  }, [view, selectedCompanyId]);
+
   if (view === 'landing') {
     return (
-      <NierShell landing className="animate-fade-in">
+      <NierShell landing>
         <main id="main-content" className="nier-landing-main">
           <div className="nier-rail w-full nier-landing-panel">
             <div className="nier-landing-brand-wrap">
@@ -704,15 +902,15 @@ export default function App() {
               </h1>
             </div>
             <p className="nier-landing-copy">
-              Screen PSE companies from filing-backed numbers. Build a shortlist, keep a
-              watchlist, and notice when signals change.
-            </p>
-            <p className="nier-landing-steps nier-msg-plain">
-              Start with the company list: click a row to see why it passed, then star names
-              you want to watch.
+              Screen PSE companies from filing-backed numbers. Open the list, click a row to
+              see why it passed, then watch names you want alerts on.
             </p>
             <div className="nier-landing-cta">
-              <button type="button" className="nier-btn" onClick={() => openCompanyList(false)}>
+              <button
+                type="button"
+                className="nier-btn nier-btn--ink"
+                onClick={() => openCompanyList(false)}
+              >
                 Open company list
               </button>
               <button type="button" className="nier-btn" onClick={() => setView('watchlist')}>
@@ -775,6 +973,12 @@ export default function App() {
             company={companyDetails}
             onBack={backToDirectory}
             thresholds={appliedThresholds}
+            watched={isWatched(watchlist, companyDetails.id)}
+            watchDisabled={
+              !isWatched(watchlist, companyDetails.id)
+              && watchlist.ids.length >= WATCHLIST_MAX
+            }
+            onToggleWatch={toggleWatchlistPick}
           />
         </Suspense>
       </NierShell>
@@ -803,6 +1007,7 @@ export default function App() {
         <Suspense fallback={<ViewFallback label="Loading watchlist…" />}>
           <WatchlistView
             watchlist={watchlist}
+            listThresholds={listThresholdUi}
             onBack={backFromWatchlist}
             onOpen={openCompany}
             onRemove={removeWatchlistPick}
@@ -821,112 +1026,122 @@ export default function App() {
   }
 
   const showCompareCol = compareMode || comparePicks.length > 0;
-  // ⊕? ★ ticker name price mcap yield checks data sector [+5 focus]
-  const colSpan = (showCompareCol ? 1 : 0) + (focusMode ? 14 : 9);
+  /** Wide ratio columns are desktop-only; narrow always uses the shortlist. */
+  const wideTable = focusMode && !isNarrow;
+  /** Tools · on = layout/export only — Compare lives in primary chrome. */
+  const toolsActive = wideTable;
+  /** Filters · on = screening only (Sector / Limits), never Tools or Compare. */
+  const screeningFiltersOn = facetsActive || limitsActive;
+  // ⊕? ★ ticker name price mcap yield checks data sector [+5 wide]
+  // Narrow shortlist hides name/price/mcap/sector (+ ratios) via CSS.
+  /** Data rows only — status panels stay out of the table (fixed-layout + colspan collapsed thead on SE). */
+  const showRegistryTable = listStatus === 'ready' && companies.length > 0;
   const compareAtCap = comparePicks.length >= MAX_COMPARE;
   const watchAtCap = watchlist.ids.length >= WATCHLIST_MAX;
+  const previewProps = {
+    company: previewCompany,
+    status: previewStatus,
+    onOpen: openCompany,
+    onClear: clearPreview,
+    thresholds: appliedThresholds,
+    watched: previewCompany ? isWatched(watchlist, previewCompany.id) : false,
+    watchDisabled: previewCompany
+      ? !isWatched(watchlist, previewCompany.id) && watchAtCap
+      : false,
+    onToggleWatch: toggleWatchlistPick,
+    emptyHint: showRegistryTip
+      ? (isNarrow
+        ? 'Tap a row for why it passed. ★ saves alerts.'
+        : 'Click a row for why it passed. ★ in WATCH saves alerts.')
+      : (isNarrow
+        ? 'Tap a row for why it passed.'
+        : 'Click a row for why it passed.'),
+    onDismissEmptyHint: showRegistryTip ? dismissRegistryTip : undefined,
+  };
+  const showDesktopRail = !wideTable && !isNarrow;
+  const showNarrowSheet = isNarrow && Boolean(previewCompany);
+  const showNarrowEmptyTip = isNarrow && !previewCompany;
 
   return (
-    <NierShell className="select-text">
+    <NierShell className={`select-text${showNarrowSheet ? ' nier-shell--sheet-open' : ''}`}>
+      <div className="nier-sheet-background" inert={showNarrowSheet || undefined}>
       <header className="nier-dashboard-header">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="nier-dashboard-header-lead">
           <button type="button" onClick={goHome} className="nier-btn nier-btn--compact">
             Home
           </button>
           <button type="button" onClick={() => setView('watchlist')} className="nier-btn nier-btn--compact">
-            WATCHLIST ({watchlist.ids.length})
+            {isNarrow ? `Watch (${watchlist.ids.length})` : `Watchlist (${watchlist.ids.length})`}
           </button>
-          <h1 className="nier-title text-sm tracking-[0.18em]">CENTRAL_REGISTRY_UNIT</h1>
         </div>
-        <div className="text-xs tracking-widest uppercase font-medium text-right nier-ink-muted">
-          [ ONLINE_RECORDS: <span className="text-nier-orange">{totalCount}</span> ]
+        <div className="nier-dashboard-header-title">
+          <h1 className="nier-chrome-title">Company list</h1>
+          <div className="nier-chrome-meta">
+            <span className="nier-chrome-meta-value">{totalCount}</span> companies
+          </div>
         </div>
       </header>
 
       <main
         id="main-content"
         className={`nier-dashboard-stack mx-auto${
-          focusMode ? ' nier-dashboard-stack--focus' : ' max-w-[90rem]'
+          wideTable ? ' nier-dashboard-stack--focus' : ' max-w-[90rem]'
         }`}
       >
         <div className="nier-controls">
           <form onSubmit={handleSearch} className="nier-search-form" role="search">
             <input
               type="text"
-              placeholder="Search by ticker, symbol, or name…"
+              placeholder={isNarrow ? 'Ticker or name' : 'Search by ticker, symbol, or name…'}
               aria-label="Search by ticker, symbol, or name"
+              title="Search by ticker, symbol, or name"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="grow nier-input"
+              autoComplete="off"
+              enterKeyHint="search"
             />
-            <button type="submit" className="nier-btn">Search</button>
+            <button
+              type="submit"
+              className={`nier-btn${searchDraftPending || filtersPending ? ' nier-btn--pressed' : ''}`}
+              title={
+                filtersPending && !searchDraftPending
+                  ? 'Search and apply pending filters to the shortlist'
+                  : 'Search the shortlist'
+              }
+            >
+              Search
+            </button>
           </form>
 
-          <div className="nier-filter-bar" role="group" aria-label="Directory filters">
+          <div
+            className="nier-filter-bar nier-filter-bar--primary"
+            role="group"
+            aria-label="Screen shortlist"
+          >
             <NierSelect
-              label="SECTOR"
-              value={filters.sector}
-              onChange={(v) => handleFilterChange('sector', v)}
-              options={[
-                { value: '', label: 'All' },
-                ...sectors.map((s) => ({ value: s, label: s })),
-              ]}
-            />
-            <NierSelect
-              label="SUBSECTOR"
-              value={filters.subsector}
-              onChange={(v) => handleFilterChange('subsector', v)}
-              options={[
-                { value: '', label: 'All' },
-                ...subsectorOptions,
-              ]}
-            />
-            <NierSelect
-              label="CAP TIER"
-              value={filters.capTier}
-              onChange={(v) => handleFilterChange('capTier', v)}
-              options={[
-                { value: '', label: 'All' },
-                ...CAP_TIERS.map((t) => ({ value: t, label: t })),
-              ]}
-            />
-            <NierSelect
-              label="PASSED SCREEN"
+              label={isNarrow ? 'PASSED' : 'PASSED SCREEN'}
               value={filters.qualified}
               onChange={(v) => handleFilterChange('qualified', v)}
               options={[
                 { value: '', label: 'All' },
-                { value: 'true', label: 'Yes (more than 5 checks)' },
+                { value: 'true', label: 'Yes (>5 checks)' },
                 { value: 'false', label: 'No' },
               ]}
             />
-            <NierSelect
-              label="MISSING DATA"
-              value={filters.incomplete}
-              onChange={(v) => handleFilterChange('incomplete', v)}
-              options={[
-                { value: '', label: 'All' },
-                { value: 'true', label: 'Yes' },
-                { value: 'false', label: 'No' },
-              ]}
-            />
-            <div className="nier-filter-actions">
-              <button
-                type="button"
-                className={`nier-btn${thresholdsOpen ? ' nier-btn--pressed' : ''}`}
-                onClick={() => setThresholdsOpen((o) => !o)}
-                aria-expanded={thresholdsOpen}
-                aria-controls="registry-thresholds"
-              >
-                Limits{hasThresholdValues(appliedFilters) ? ' · on' : ''}
-              </button>
+            <div className="nier-filter-actions nier-filter-actions--primary">
               <button
                 type="button"
                 className={`nier-btn${filtersPending ? ' nier-btn--pressed' : ''}`}
                 onClick={applyFilters}
                 aria-describedby={filtersPending ? 'registry-filters-pending' : undefined}
+                title={
+                  filtersPending
+                    ? 'Apply drafts to the shortlist (Passed already applies live)'
+                    : 'Shortlist already matches these controls'
+                }
               >
-                {filtersPending ? 'Apply filters · pending' : 'Apply filters'}
+                {filtersPending ? 'Apply · pending' : 'Apply'}
               </button>
               <button
                 type="button"
@@ -936,54 +1151,56 @@ export default function App() {
                   && !Object.values(filters).some(Boolean)
                   && !search}
               >
-                Clear filters
+                Clear
               </button>
               <button
                 type="button"
-                className={`nier-btn${focusMode ? ' nier-btn--pressed' : ''}`}
-                onClick={toggleFocusMode}
-                aria-pressed={focusMode}
-                title="Hide preview and show ratio columns in the table"
+                className={`nier-btn${moreFiltersVisible ? ' nier-btn--pressed' : ''}`}
+                onClick={toggleFiltersMenu}
+                aria-expanded={moreFiltersVisible}
+                aria-controls="registry-filter-peers"
+                title="Sector and ratio limits (Tools for wide table / export)"
               >
-                Show ratios
+                Filters
+                {screeningFiltersOn ? ' · on' : ''}
               </button>
               <button
                 type="button"
                 className={`nier-btn${showCompareCol ? ' nier-btn--pressed' : ''}`}
-                onClick={() => setCompareMode((o) => !o)}
+                onClick={toggleComparePickMode}
                 aria-pressed={showCompareCol}
                 title="Show checkboxes to pick companies for comparison"
               >
-                Pick to compare
+                {isNarrow ? 'Compare' : 'Pick to compare'}
               </button>
-              <button
-                type="button"
-                className={`nier-btn${moreOpen ? ' nier-btn--pressed' : ''}`}
-                onClick={() => setMoreOpen((o) => !o)}
-                aria-expanded={moreOpen}
-                aria-controls="registry-more-actions"
-              >
-                More
-              </button>
-              {moreOpen && (
-                <button
-                  type="button"
-                  id="registry-more-actions"
-                  className="nier-btn"
-                  onClick={exportRegistryCsv}
-                  disabled={listStatus === 'loading' || csvStatus === 'loading'}
-                >
-                  {csvStatus === 'loading' ? 'Exporting…' : 'Export CSV'}
-                </button>
-              )}
             </div>
+            <p
+              className="nier-live-rules nier-msg-plain"
+              role="status"
+              title={
+                filtersPending
+                  ? `${liveRules.title} Showing the last applied shortlist — drafts need Apply.`
+                  : liveRules.title
+              }
+            >
+              <span className="nier-live-rules-line">
+                {isNarrow ? liveRules.compactLine : liveRules.line}
+              </span>
+              {liveRules.usingDefaults ? (
+                <span className="nier-live-rules-tag"> defaults</span>
+              ) : null}
+              {filtersPending ? (
+                <span className="nier-live-rules-tag"> last applied</span>
+              ) : null}
+            </p>
             {filtersPending && !filterError && (
               <p
                 id="registry-filters-pending"
                 className="nier-filter-status nier-ink-muted nier-msg-plain"
                 role="status"
+                aria-live="polite"
               >
-                Changes are not applied yet. Press Apply filters or Search.
+                {pendingShortlistMessage}
               </p>
             )}
             {filterError && (
@@ -991,14 +1208,140 @@ export default function App() {
                 {filterError}
               </p>
             )}
-            {csvStatus && csvStatus !== 'loading' && (
-              <p className="nier-filter-status nier-ink-muted nier-msg-plain" role="status">
-                {csvStatus}
-              </p>
-            )}
           </div>
 
-          {thresholdsOpen && (
+
+          {moreFiltersVisible && (
+            <div
+              id="registry-filter-peers"
+              className="nier-filter-peers"
+              role="group"
+              aria-label="More filters"
+            >
+              <button
+                type="button"
+                className={`nier-btn${facetsOpen ? ' nier-btn--pressed' : ''}`}
+                onClick={() => toggleFilterPanel('facets')}
+                aria-expanded={facetsOpen}
+                aria-controls="registry-more-filters"
+              >
+                Sector{facetsActive ? ' · on' : ''}
+              </button>
+              <button
+                type="button"
+                className={`nier-btn${limitsOpen ? ' nier-btn--pressed' : ''}`}
+                onClick={() => toggleFilterPanel('limits')}
+                aria-expanded={limitsOpen}
+                aria-controls="registry-thresholds"
+              >
+                Limits{limitsActive ? ' · on' : ''}
+              </button>
+              <button
+                type="button"
+                className={`nier-btn${toolsOpen ? ' nier-btn--pressed' : ''}`}
+                onClick={() => toggleFilterPanel('tools')}
+                aria-expanded={toolsOpen}
+                aria-controls="registry-filter-tools"
+              >
+                Tools{toolsActive ? ' · on' : ''}
+              </button>
+            </div>
+          )}
+
+          {facetsOpen && (
+            <div
+              id="registry-more-filters"
+              className="nier-filter-bar nier-filter-bar--secondary"
+              role="group"
+              aria-label="Sector and data filters"
+            >
+              <NierSelect
+                label="SECTOR"
+                value={filters.sector}
+                onChange={(v) => handleFilterChange('sector', v)}
+                options={[
+                  { value: '', label: 'All' },
+                  ...sectors.map((s) => ({ value: s, label: s })),
+                ]}
+              />
+              <NierSelect
+                label="SUBSECTOR"
+                value={filters.subsector}
+                onChange={(v) => handleFilterChange('subsector', v)}
+                options={[
+                  { value: '', label: 'All' },
+                  ...subsectorOptions,
+                ]}
+              />
+              <NierSelect
+                label="CAP TIER"
+                value={filters.capTier}
+                onChange={(v) => handleFilterChange('capTier', v)}
+                options={[
+                  { value: '', label: 'All' },
+                  ...CAP_TIERS.map((t) => ({ value: t, label: t })),
+                ]}
+              />
+              <NierSelect
+                label="MISSING DATA"
+                value={filters.incomplete}
+                onChange={(v) => handleFilterChange('incomplete', v)}
+                options={[
+                  { value: '', label: 'All' },
+                  { value: 'true', label: 'Yes' },
+                  { value: 'false', label: 'No' },
+                ]}
+              />
+            </div>
+          )}
+
+          {toolsOpen && (
+            <div
+              id="registry-filter-tools"
+              className="nier-filter-tools nier-filter-tools--panel"
+              role="group"
+              aria-label="Layout and export"
+            >
+              {!isNarrow && (
+                <button
+                  type="button"
+                  className={`nier-btn nier-btn--compact${focusMode ? ' nier-btn--pressed' : ''}`}
+                  onClick={toggleFocusMode}
+                  aria-pressed={focusMode}
+                  aria-label={
+                    focusMode
+                      ? 'Wide table on. Switch to side preview: checklist in a panel, hide ratio columns'
+                      : 'Switch to wide table: ratio columns with checklist above the table'
+                  }
+                  title={
+                    focusMode
+                      ? 'Wide table on — click for side preview (hide P/E–D/E columns)'
+                      : 'Wide table — show P/E–D/E columns; checklist above the table'
+                  }
+                >
+                  Wide table
+                </button>
+              )}
+              <button
+                type="button"
+                className="nier-btn nier-btn--compact"
+                onClick={exportRegistryCsv}
+                disabled={listStatus === 'loading' || csvStatus === 'loading'}
+              >
+                {csvStatus === 'loading' ? 'Exporting…' : 'Export CSV'}
+              </button>
+              {csvStatus && csvStatus !== 'loading' && (
+                <p className="nier-filter-status nier-ink-muted nier-msg-plain" role="status">
+                  {csvStatus}
+                </p>
+              )}
+              <p className="nier-filter-tools-hint nier-ink-muted nier-msg-plain">
+                Compare sits next to Filters — turn it on, pick rows, then Compare selected.
+              </p>
+            </div>
+          )}
+
+          {limitsOpen && (
             <div
               id="registry-thresholds"
               className="nier-filter-bar nier-filter-bar--thresholds"
@@ -1007,46 +1350,52 @@ export default function App() {
             >
               <ThresholdInput
                 label="P/E MAX"
-                hint="e.g. 10 — blank = default 22"
+                hint="Blank = default 22"
                 value={filters.peMax}
                 onChange={(v) => handleFilterChange('peMax', v)}
                 ariaLabel="P/E maximum"
               />
               <ThresholdInput
                 label="P/B MAX"
-                hint="e.g. 0.5 — blank = default 1"
+                hint="Blank = default 1"
                 value={filters.pbMax}
                 onChange={(v) => handleFilterChange('pbMax', v)}
                 ariaLabel="P/B maximum"
               />
               <ThresholdInput
                 label="ROE MIN %"
-                hint="e.g. 20 — blank = default 10%"
+                hint="Blank = default 10%"
                 value={filters.roeMin}
                 onChange={(v) => handleFilterChange('roeMin', v)}
                 ariaLabel="ROE minimum percent"
               />
               <ThresholdInput
                 label="YIELD MIN %"
-                hint="e.g. 4 — blank = any"
+                hint="Blank = no floor"
+                title="Blank = no dividend yield floor"
                 value={filters.yieldMin}
                 onChange={(v) => handleFilterChange('yieldMin', v)}
                 ariaLabel="Dividend yield minimum percent"
               />
               <ThresholdInput
-                label="RETURN MIN %"
-                hint="ROIC or bank capital return; e.g. 8"
+                label="ROIC MIN %"
+                hint="Blank = no floor"
+                title="Blank = no ROIC / capital-return floor"
                 value={filters.roicMin}
                 onChange={(v) => handleFilterChange('roicMin', v)}
                 ariaLabel="ROIC or capital return minimum percent"
               />
               <ThresholdInput
                 label="D/E MAX"
-                hint="e.g. 1.5 — blank = default 2"
+                hint="Blank = default 2"
                 value={filters.deMax}
                 onChange={(v) => handleFilterChange('deMax', v)}
                 ariaLabel="Debt to equity maximum"
               />
+              <p className="nier-threshold-bridge nier-msg-plain">
+                Screens the company list only. Watchlist alerts follow these Limits until you
+                Detach on the watchlist.
+              </p>
             </div>
           )}
 
@@ -1090,118 +1439,169 @@ export default function App() {
           )}
         </div>
 
-        {(showRegistryTip || showWatchTip) && (
+        {showWatchTip && (
           <div className="nier-coach-stack">
-            {showRegistryTip && (
-              <div className="nier-coach-strip" role="region" aria-label="Getting started">
-                <p className="nier-coach-copy nier-msg-plain">
-                  Click a row to see why it passed. Star names you want alerts on.
-                </p>
-                <div className="nier-coach-actions">
-                  <button type="button" className="nier-btn nier-btn--compact" onClick={showPassedOnly}>
-                    Show passed only
-                  </button>
-                  <button type="button" className="nier-btn nier-btn--compact" onClick={dismissRegistryTip}>
-                    Got it
-                  </button>
-                </div>
+            <div
+              className="nier-coach-strip nier-coach-strip--watch nier-coach-strip--inline"
+              role="region"
+              aria-label="Watchlist tip"
+            >
+              <p className="nier-coach-copy nier-msg-plain">
+                Watching (★). Open Watchlist next time to see if checks or ratios flip.
+              </p>
+              <div className="nier-coach-actions">
+                <button
+                  type="button"
+                  className="nier-btn nier-btn--compact"
+                  onClick={() => {
+                    dismissWatchTip();
+                    setView('watchlist');
+                  }}
+                >
+                  Open watchlist
+                </button>
+                <button
+                  type="button"
+                  className="nier-btn nier-btn--compact"
+                  onClick={dismissWatchTip}
+                >
+                  Got it
+                </button>
               </div>
-            )}
-            {showWatchTip && (
-              <div
-                className="nier-coach-strip nier-coach-strip--watch"
-                role="region"
-                aria-label="Watchlist tip"
-              >
-                <p className="nier-coach-copy nier-msg-plain">
-                  Saved. Open Watchlist next time to see if checks or ratios flip.
-                </p>
-                <div className="nier-coach-actions">
-                  <button
-                    type="button"
-                    className="nier-btn nier-btn--compact"
-                    onClick={() => {
-                      dismissWatchTip();
-                      setView('watchlist');
-                    }}
-                  >
-                    Open watchlist
-                  </button>
-                  <button type="button" className="nier-btn nier-btn--compact" onClick={dismissWatchTip}>
-                    Got it
-                  </button>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        <div className={`nier-dashboard-grid${focusMode ? ' nier-dashboard-grid--focus' : ''}`}>
+        <div
+          className={`nier-dashboard-grid${wideTable ? ' nier-dashboard-grid--focus' : ''}${
+            isNarrow ? ' nier-dashboard-grid--narrow' : ''
+          }`}
+        >
           <div className="nier-table-column">
-          {focusMode && (
-            <RegistryPreview
-              variant="bar"
-              company={previewCompany}
-              status={previewStatus}
-              onOpen={openCompany}
-              onClear={clearPreview}
-              thresholds={appliedThresholds}
-              watched={previewCompany ? isWatched(watchlist, previewCompany.id) : false}
-              watchDisabled={
-                previewCompany
-                  ? !isWatched(watchlist, previewCompany.id) && watchAtCap
-                  : false
-              }
-              onToggleWatch={toggleWatchlistPick}
-              onPreviewFirst={
-                listStatus === 'ready' && companies.length > 0 ? previewFirstCompany : undefined
-              }
-            />
+          {wideTable && (
+            <RegistryPreview variant="bar" {...previewProps} />
+          )}
+          {showNarrowEmptyTip && (
+            <RegistryPreview variant="bar" {...previewProps} />
           )}
 
           <div className="nier-table-container">
-            <table className="nier-table">
-              <caption className="sr-only">
-                Company registry. Focus a row, then Enter or Space to preview, O to open the full report.
-              </caption>
+            {!isNarrow && <RowKeysLegend id="registry-row-keys" />}
+            {!showRegistryTable ? (
+              <div className="nier-table-status">
+                {listStatus === 'loading' ? (
+                  <p className="nier-table-status-msg nier-ink-muted nier-msg-plain" role="status">
+                    Loading companies…
+                  </p>
+                ) : listStatus === 'error' ? (
+                  <div className="nier-table-status-panel" role="alert">
+                    <p className="nier-table-status-msg text-nier-orange nier-msg-plain">
+                      {listError || serviceUnavailableMessage('list')}
+                    </p>
+                    <p className="nier-table-status-hint nier-ink-muted nier-msg-plain">
+                      Start Edge&apos;s data service, then try again.
+                    </p>
+                    <button
+                      type="button"
+                      className="nier-btn"
+                      onClick={() => setListRetry((n) => n + 1)}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : (
+                  <div className="nier-table-status-panel" role="status">
+                    <p className="nier-empty-title">No companies match these filters.</p>
+                    <p className="nier-empty-copy nier-msg-plain">
+                      Clear filters or widen the limits, then search again.
+                    </p>
+                    <button
+                      type="button"
+                      className="nier-btn"
+                      onClick={clearFilters}
+                      disabled={!filtersActive
+                        && !Object.values(filters).some(Boolean)
+                        && !search}
+                    >
+                      Clear filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+            <table
+              className="nier-table"
+              aria-describedby={isNarrow ? undefined : 'registry-row-keys'}
+            >
+              <caption className="sr-only">Company registry</caption>
               <thead>
                 <tr>
                   {showCompareCol && (
                     <th className="nier-check-col" scope="col">
-                      <span className="sr-only">Add to compare</span>
+                      <span className="sr-only">Compare</span>
                       <span aria-hidden="true">⊕</span>
                     </th>
                   )}
-                  <th className="nier-check-col" scope="col">
-                    <span className="sr-only">Add to watchlist</span>
-                    <span aria-hidden="true">★</span>
-                  </th>
-                  <SortHeader label="TICKER" column="ticker" ordering={ordering} onSort={handleSort} />
-                  <SortHeader label="NAME" column="name" ordering={ordering} onSort={handleSort} />
-                  <SortHeader label="PRICE" column="price" ordering={ordering} onSort={handleSort} />
-                  <SortHeader label="MCAP" column="mcap" ordering={ordering} onSort={handleSort} />
-                  <SortHeader label="YIELD" column="yield" ordering={ordering} onSort={handleSort} />
+                  <WatchColumnHeader />
+                  <SortHeader
+                    label="TICKER"
+                    column="ticker"
+                    ordering={ordering}
+                    onSort={handleSort}
+                    className="nier-col-ticker"
+                  />
+                  <SortHeader
+                    label="NAME"
+                    column="name"
+                    ordering={ordering}
+                    onSort={handleSort}
+                    className="nier-col-wide"
+                  />
+                  <SortHeader
+                    label="PRICE"
+                    column="price"
+                    ordering={ordering}
+                    onSort={handleSort}
+                    className="nier-col-wide"
+                  />
+                  <SortHeader
+                    label="MCAP"
+                    column="mcap"
+                    ordering={ordering}
+                    onSort={handleSort}
+                    className="nier-col-wide"
+                  />
+                  <SortHeader
+                    label="YIELD"
+                    shortLabel="YLD"
+                    column="yield"
+                    ordering={ordering}
+                    onSort={handleSort}
+                    className="nier-col-yield"
+                  />
                   <SortHeader
                     label="CHECKS"
+                    shortLabel="CHK"
                     column="checks"
                     ordering={ordering}
                     onSort={handleSort}
-                    className="nier-col-trust"
+                    className="nier-col-trust nier-col-checks"
                   />
                   <SortHeader
                     label="DATA"
                     column="incomplete"
                     ordering={ordering}
                     onSort={handleSort}
-                    className="nier-col-trust"
+                    className="nier-col-trust nier-col-data"
+                    title="Filing data quality: OK, WARN, or INCOMPLETE"
                   />
-                  {focusMode && (
+                  {wideTable && (
                     <>
-                      <SortHeader label="P/E" column="pe" ordering={ordering} onSort={handleSort} />
-                      <SortHeader label="P/B" column="pb" ordering={ordering} onSort={handleSort} />
-                      <SortHeader label="ROE" column="roe" ordering={ordering} onSort={handleSort} />
-                      <SortHeader label="ROIC" column="roic" ordering={ordering} onSort={handleSort} />
-                      <SortHeader label="D/E" column="de" ordering={ordering} onSort={handleSort} />
+                      <SortHeader label="P/E" column="pe" ordering={ordering} onSort={handleSort} className="nier-col-ratio" />
+                      <SortHeader label="P/B" column="pb" ordering={ordering} onSort={handleSort} className="nier-col-ratio" />
+                      <SortHeader label="ROE" column="roe" ordering={ordering} onSort={handleSort} className="nier-col-ratio" />
+                      <SortHeader label="ROIC" column="roic" ordering={ordering} onSort={handleSort} className="nier-col-ratio" />
+                      <SortHeader label="D/E" column="de" ordering={ordering} onSort={handleSort} className="nier-col-ratio" />
                     </>
                   )}
                   <SortHeader
@@ -1209,54 +1609,12 @@ export default function App() {
                     column="sector"
                     ordering={ordering}
                     onSort={handleSort}
-                    className="nier-col-sector"
+                    className="nier-col-sector nier-col-wide"
                   />
                 </tr>
               </thead>
               <tbody className="text-xs tracking-wider uppercase">
-                {listStatus === 'loading' ? (
-                  <tr>
-                    <td colSpan={colSpan} className="text-center nier-ink-muted py-12 nier-msg-plain" role="status">
-                      Loading companies…
-                    </td>
-                  </tr>
-                ) : listStatus === 'error' ? (
-                  <tr>
-                    <td colSpan={colSpan} className="text-center py-12 text-nier-orange nier-msg-plain" role="alert">
-                      {listError || serviceUnavailableMessage('list')}
-                      <div className="mt-2 nier-ink-muted text-xs leading-snug">
-                        Start Edge&apos;s data service, then try again.
-                      </div>
-                      <button
-                        type="button"
-                        className="nier-btn mt-4 text-xs"
-                        onClick={() => setListRetry((n) => n + 1)}
-                      >
-                        Try again
-                      </button>
-                    </td>
-                  </tr>
-                ) : companies.length === 0 ? (
-                  <tr>
-                    <td colSpan={colSpan} className="text-center nier-ink-muted py-12 nier-msg-plain" role="status">
-                      <p className="mb-0">No companies match these filters.</p>
-                      <p className="mt-2 mb-0 nier-ink-muted">
-                        Clear filters or widen the limits, then search again.
-                      </p>
-                      <button
-                        type="button"
-                        className="nier-btn mt-4"
-                        onClick={clearFilters}
-                        disabled={!filtersActive
-                          && !Object.values(filters).some(Boolean)
-                          && !search}
-                      >
-                        Clear filters
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  companies.map((company) => {
+                  {companies.map((company) => {
                     const qualified = company.passes_screen;
                     const checksLabel =
                       company.check_pass_count != null && company.check_evaluable_total != null
@@ -1268,28 +1626,45 @@ export default function App() {
                     const watched = isWatched(watchlist, company.id);
                     const watchDisabled = !watched && watchAtCap;
                     const ticker = company.ticker || company.symbol;
+                    const sectorLine = formatSectorSubsectorLine(company);
                     const dq = registryDataStatus(company);
-                    const onRowKeyDown = (e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (e.ctrlKey || e.metaKey) openCompany(company.id);
-                        else selectCompanyPreview(company.id);
-                      } else if (e.key === ' ') {
-                        e.preventDefault();
-                        selectCompanyPreview(company.id);
-                      } else if (e.key === 'o' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-                        e.preventDefault();
-                        openCompany(company.id);
-                      }
+                    const checksSignal = registryCellSignal('checks', null, appliedThresholds, {
+                      qualified: company.passes_screen,
+                      passCount: company.check_pass_count,
+                      total: company.check_evaluable_total,
+                    });
+                    const yieldSignal = registryCellSignal(
+                      'yield',
+                      company.div_yield,
+                      appliedThresholds,
+                      thresholdExtras,
+                    );
+                    const peSignal = registryCellSignal('pe', company.pe_ratio, appliedThresholds);
+                    const pbSignal = registryCellSignal('pb', company.pb_ratio, appliedThresholds);
+                    const roeSignal = registryCellSignal('roe', company.roe, appliedThresholds);
+                    const roicSignal = registryCellSignal(
+                      'roic',
+                      company.roic,
+                      appliedThresholds,
+                      thresholdExtras,
+                    );
+                    const deSignal = registryCellSignal(
+                      'de',
+                      company.debt_to_equity,
+                      appliedThresholds,
+                    );
+                    const tickerBtnId = `registry-ticker-${company.id}`;
+                    const previewRow = () => {
+                      focusTickerButton(tickerBtnId);
+                      selectCompanyPreview(company.id);
                     };
                     return (
                       <tr
                         key={company.id}
-                        tabIndex={0}
-                        aria-keyshortcuts="Enter Space o"
-                        onClick={() => selectCompanyPreview(company.id)}
+                        id={`registry-row-${company.id}`}
+                        aria-selected={previewCompanyId === company.id}
+                        onClick={previewRow}
                         onDoubleClick={() => openCompany(company.id)}
-                        onKeyDown={onRowKeyDown}
                         className={[
                           'transition-colors duration-150 hover:bg-nier-dark/10',
                           previewCompanyId === company.id
@@ -1304,7 +1679,6 @@ export default function App() {
                             className="nier-check-col"
                             onClick={(e) => e.stopPropagation()}
                             onDoubleClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
                           >
                             <label className="nier-compare-check-wrap">
                               <input
@@ -1326,32 +1700,41 @@ export default function App() {
                           className="nier-check-col"
                           onClick={(e) => e.stopPropagation()}
                           onDoubleClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => e.stopPropagation()}
                         >
-                          <button
-                            type="button"
-                            className={`nier-watch-btn${watched ? ' nier-watch-btn--on' : ''}`}
+                          <WatchToggle
+                            ticker={ticker}
+                            watched={watched}
                             disabled={watchDisabled}
+                            max={WATCHLIST_MAX}
                             onClick={() => toggleWatchlistPick(company)}
-                            aria-pressed={watched}
-                            aria-label={
-                              watchDisabled
-                                ? `Watchlist full (max ${WATCHLIST_MAX}). Cannot add ${ticker}`
-                                : watched
-                                  ? `Remove ${ticker} from watchlist`
-                                  : `Add ${ticker} to watchlist`
-                            }
-                            title={watched ? 'On watchlist' : 'Add to watchlist'}
-                          >
-                            {watched ? '★' : '☆'}
-                          </button>
+                          />
                         </td>
-                        <td className="font-bold text-nier-orange">
-                          {ticker}
+                        <td className="nier-col-ticker font-bold text-nier-orange">
+                          <div className="nier-ticker-stack">
+                            <TickerPreviewButton
+                              id={tickerBtnId}
+                              ticker={ticker}
+                              companyName={company.name}
+                              onPreview={previewRow}
+                              onOpen={() => openCompany(company.id)}
+                              describedBy={isNarrow ? undefined : 'registry-row-keys'}
+                              openOnDoubleClick={!isNarrow}
+                            />
+                            {sectorLine ? (
+                              <span
+                                className="nier-ticker-sector nier-sentence nier-ink-muted"
+                                title={sectorLine}
+                              >
+                                {sectorLine}
+                              </span>
+                            ) : null}
+                          </div>
                         </td>
-                        <td className="nier-proper-name">{company.name}</td>
-                        <td className="font-mono whitespace-nowrap">{formatPrice(company.last_traded_price)}</td>
-                        <td className="whitespace-nowrap">
+                        <td className="nier-proper-name nier-col-wide">{company.name}</td>
+                        <td className="font-mono whitespace-nowrap nier-col-wide">
+                          {formatPrice(company.last_traded_price)}
+                        </td>
+                        <td className="whitespace-nowrap nier-col-wide">
                           <span className="font-mono">{formatMarketCap(company.market_cap)}</span>
                           {tier && (
                             <span className={`nier-cap-tier nier-cap-tier--${tier.toLowerCase()}`}>
@@ -1359,10 +1742,15 @@ export default function App() {
                             </span>
                           )}
                         </td>
-                        <td className="font-mono whitespace-nowrap">{formatPct(company.div_yield)}</td>
                         <td
-                          className="font-mono nier-col-trust"
-                          title={company.passes_screen ? 'Qualified (>5 pass)' : 'Not qualified'}
+                          className={`nier-col-yield font-mono whitespace-nowrap ${cellSignalClass(yieldSignal.signal)}`}
+                          title={yieldSignal.title}
+                        >
+                          {formatPct(company.div_yield)}
+                        </td>
+                        <td
+                          className={`font-mono nier-col-trust nier-col-checks ${cellSignalClass(checksSignal.signal)}`}
+                          title={checksSignal.title}
                         >
                           {checksLabel}
                           {company.passes_screen ? (
@@ -1371,43 +1759,58 @@ export default function App() {
                             </span>
                           ) : null}
                         </td>
-                        <td className="nier-col-trust">
-                          {dq.level === 'ok' ? (
-                            <span className="nier-dq-chip nier-dq-chip--ok" title={dq.title}>
-                              {dq.label}
+                        <td className="nier-col-trust nier-col-data">
+                          <span
+                            className={`nier-dq-chip nier-dq-chip--${dq.level}`}
+                            title={dq.title}
+                            aria-label={`Data ${dq.label}: ${dq.title}`}
+                          >
+                            <span className="nier-dq-chip-label--full">{dq.label}</span>
+                            <span className="nier-dq-chip-label--short" aria-hidden="true">
+                              {dq.shortLabel || dq.label}
                             </span>
-                          ) : (
-                            <span
-                              className={`nier-dq-chip nier-dq-chip--${dq.level}`}
-                              title={dq.title}
-                              aria-label={`${dq.label}: ${dq.title}`}
-                            >
-                              {dq.label}
-                            </span>
-                          )}
+                          </span>
                         </td>
-                        {focusMode && (
+                        {wideTable && (
                           <>
-                            <td className="font-mono whitespace-nowrap">
+                            <td
+                              className={`font-mono whitespace-nowrap nier-col-ratio ${cellSignalClass(peSignal.signal)}`}
+                              title={peSignal.title}
+                            >
                               {formatRatio(company.pe_ratio)}
                             </td>
-                            <td className="font-mono whitespace-nowrap">
+                            <td
+                              className={`font-mono whitespace-nowrap nier-col-ratio ${cellSignalClass(pbSignal.signal)}`}
+                              title={pbSignal.title}
+                            >
                               {formatRatio(company.pb_ratio)}
                             </td>
-                            <td className="font-mono whitespace-nowrap">
+                            <td
+                              className={`font-mono whitespace-nowrap nier-col-ratio ${cellSignalClass(roeSignal.signal)}`}
+                              title={roeSignal.title}
+                            >
                               {formatPct(company.roe)}
                             </td>
-                            <td className="font-mono whitespace-nowrap">
+                            <td
+                              className={`font-mono whitespace-nowrap nier-col-ratio ${cellSignalClass(roicSignal.signal)}`}
+                              title={roicSignal.title}
+                            >
                               {formatPct(company.roic)}
                             </td>
-                            <td className="font-mono whitespace-nowrap">
+                            <td
+                              className={`font-mono whitespace-nowrap nier-col-ratio ${cellSignalClass(deSignal.signal)}`}
+                              title={deSignal.title}
+                            >
                               {formatRatio(company.debt_to_equity)}
                             </td>
                           </>
                         )}
-                        <td className="nier-sentence nier-col-sector">
+                        <td className="nier-sentence nier-col-sector nier-col-wide">
                           <span>{company.sector || '—'}</span>
-                          {company.subsector ? (
+                          {company.subsector
+                            && company.sector
+                            && company.subsector.toLowerCase()
+                              !== company.sector.toLowerCase() ? (
                             <span className="nier-subsector-inline nier-ink-muted">
                               {' '}· {company.subsector}
                             </span>
@@ -1415,10 +1818,10 @@ export default function App() {
                         </td>
                       </tr>
                     );
-                  })
-                )}
+                  })}
               </tbody>
             </table>
+            )}
           </div>
 
           <nav className="nier-pagination-bar" aria-label="Results pages">
@@ -1444,37 +1847,27 @@ export default function App() {
           </nav>
         </div>
 
-          {!focusMode && (
+          {showDesktopRail && (
             <aside className="nier-detail-column">
-              <RegistryPreview
-                company={previewCompany}
-                status={previewStatus}
-                onOpen={openCompany}
-                onClear={clearPreview}
-                thresholds={appliedThresholds}
-                watched={previewCompany ? isWatched(watchlist, previewCompany.id) : false}
-                watchDisabled={
-                  previewCompany
-                    ? !isWatched(watchlist, previewCompany.id) && watchAtCap
-                    : false
-                }
-                onToggleWatch={toggleWatchlistPick}
-                onPreviewFirst={
-                  listStatus === 'ready' && companies.length > 0 ? previewFirstCompany : undefined
-                }
-              />
-              <details className="nier-news-drawer">
-                <summary className="nier-news-drawer-summary">News</summary>
-                <TickerNews
-                  companyId={previewCompanyId}
-                  ticker={previewCompany?.ticker || previewCompany?.symbol}
-                  compact
-                />
-              </details>
+              <RegistryPreview {...previewProps} />
             </aside>
           )}
         </div>
       </main>
+      </div>
+
+      {showNarrowSheet && (
+        <>
+          <button
+            type="button"
+            className="nier-preview-sheet-backdrop"
+            tabIndex={-1}
+            aria-hidden="true"
+            onClick={clearPreview}
+          />
+          <RegistryPreview variant="sheet" {...previewProps} />
+        </>
+      )}
     </NierShell>
   );
 }
