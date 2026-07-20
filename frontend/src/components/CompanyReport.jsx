@@ -1,12 +1,26 @@
+import { useLayoutEffect } from 'react';
 import MetricBarChart from './MetricBarChart';
 import BalanceSheetChart from './BalanceSheetChart';
 import ChecklistPreview from './ChecklistPreview';
 import DataQualityPanel from './DataQualityPanel';
 import TickerNews from './TickerNews';
+import WatchToggle from './WatchToggle';
 import { buildReport, formatBillions, formatPct, formatPhp } from '../lib/metrics';
 import { METRIC_COLORS } from '../lib/nierPalette';
+import { WATCHLIST_MAX } from '../lib/watchlist';
 
-export default function CompanyReport({ company, onBack, thresholds }) {
+function RatioLabel({ children }) {
+  return <th scope="row">{children}</th>;
+}
+
+export default function CompanyReport({
+  company,
+  onBack,
+  thresholds,
+  watched = false,
+  watchDisabled = false,
+  onToggleWatch,
+}) {
   const report = buildReport(company, thresholds);
   const bvDer = report.bvDerivation || {};
   const dateLabel = report.asOf.toLocaleDateString('en-US', {
@@ -15,16 +29,33 @@ export default function CompanyReport({ company, onBack, thresholds }) {
     year: 'numeric',
   });
 
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, [company?.id]);
+
   return (
-    <main id="main-content" className="report-page animate-fade-in">
+    <main id="main-content" className="report-page nier-view-settle">
       <header className="report-topbar">
-        <div className="report-brand-row">
+        <div className="report-topbar-nav">
           <button type="button" className="nier-btn nier-btn--compact" onClick={onBack} aria-label="Back to company list">
             Back to list
           </button>
-          <span className="report-unit">FUNDAMENTAL_METRICS_UNIT</span>
+          {onToggleWatch ? (
+            <WatchToggle
+              ticker={report.displayTicker}
+              watched={watched}
+              disabled={watchDisabled}
+              max={WATCHLIST_MAX}
+              showLabel
+              className="report-watch-btn"
+              onClick={() => onToggleWatch(company)}
+            />
+          ) : null}
         </div>
-        <span className="report-date">AS_OF: {dateLabel}</span>
+        <div className="report-topbar-meta">
+          <span className="report-unit">Company report</span>
+          <span className="report-date">As of {dateLabel}</span>
+        </div>
       </header>
 
       <div className="report-title-bar">
@@ -48,86 +79,86 @@ export default function CompanyReport({ company, onBack, thresholds }) {
             {report.bankMode ? (
               <>
                 <tr>
-                  <td>Loans CAGR</td>
+                  <RatioLabel>Loans CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.loans)}</td>
-                  <td>P/E</td>
+                  <RatioLabel>P/E</RatioLabel>
                   <td className="num">
                     {report.ratios.pe != null ? report.ratios.pe.toFixed(2) : '—'}
                   </td>
                 </tr>
                 <tr>
-                  <td>Deposits CAGR</td>
+                  <RatioLabel>Deposits CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.deposits)}</td>
-                  <td>P/B</td>
+                  <RatioLabel>P/B</RatioLabel>
                   <td className="num">
                     {report.ratios.pb != null ? report.ratios.pb.toFixed(2) : '—'}
                   </td>
                 </tr>
                 <tr>
-                  <td>NII CAGR</td>
+                  <RatioLabel>NII CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.nii)}</td>
-                  <td>ROE</td>
+                  <RatioLabel>ROE</RatioLabel>
                   <td className="num">{formatPct(report.ratios.roe)}</td>
                 </tr>
                 <tr>
-                  <td>Loans / Deposits</td>
+                  <RatioLabel>Loans / Deposits</RatioLabel>
                   <td className="num">
                     {report.ratios.ldr != null ? report.ratios.ldr.toFixed(2) : '—'}
                   </td>
-                  <td>Capital return</td>
+                  <RatioLabel>Capital return</RatioLabel>
                   <td className="num">{formatPct(report.ratios.roic)}</td>
                 </tr>
                 <tr>
-                  <td>NPL ratio</td>
+                  <RatioLabel>NPL ratio</RatioLabel>
                   <td className="num">{formatPct(report.ratios.nplRatio)}</td>
-                  <td>Equity / Assets</td>
+                  <RatioLabel>Equity / Assets</RatioLabel>
                   <td className="num">{formatPct(report.ratios.equityAssets)}</td>
                 </tr>
                 <tr>
-                  <td>Income CAGR</td>
+                  <RatioLabel>Income CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.income)}</td>
-                  <td>Book Value CAGR</td>
+                  <RatioLabel>Book Value CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.bookValue)}</td>
                 </tr>
               </>
             ) : (
               <>
                 <tr>
-                  <td>Book Value CAGR</td>
+                  <RatioLabel>Book Value CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.bookValue)}</td>
-                  <td>P/E</td>
+                  <RatioLabel>P/E</RatioLabel>
                   <td className="num">
                     {report.ratios.pe != null ? report.ratios.pe.toFixed(2) : '—'}
                   </td>
                 </tr>
                 <tr>
-                  <td>Income CAGR</td>
+                  <RatioLabel>Income CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.income)}</td>
-                  <td>P/B</td>
+                  <RatioLabel>P/B</RatioLabel>
                   <td className="num">
                     {report.ratios.pb != null ? report.ratios.pb.toFixed(2) : '—'}
                   </td>
                 </tr>
                 <tr>
-                  <td>Assets CAGR</td>
+                  <RatioLabel>Assets CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.assets)}</td>
-                  <td>ROE</td>
+                  <RatioLabel>ROE</RatioLabel>
                   <td className="num">{formatPct(report.ratios.roe)}</td>
                 </tr>
                 <tr>
-                  <td>Liabilities CAGR</td>
+                  <RatioLabel>Liabilities CAGR</RatioLabel>
                   <td className="num">{formatPct(report.growth.liabilities)}</td>
-                  <td>
+                  <RatioLabel>
                     {report.roicMeta?.mode === 'equity'
                       ? 'Capital return'
                       : report.roicMeta?.mode === 'proxy'
                         ? 'ROIC (proxy)'
                         : 'ROIC'}
-                  </td>
+                  </RatioLabel>
                   <td className="num">{formatPct(report.ratios.roic)}</td>
                 </tr>
                 <tr>
-                  <td>Debt / Equity</td>
+                  <RatioLabel>Debt / Equity</RatioLabel>
                   <td className="num">
                     {report.ratios.debtEquity != null
                       ? report.ratios.debtEquity.toFixed(2)
@@ -177,25 +208,33 @@ export default function CompanyReport({ company, onBack, thresholds }) {
 
       <details className="report-section-disclosure">
         <summary>Growth charts</summary>
+        <p className="report-chart-scale-note nier-msg-plain">
+          Each chart states its unit. Money series use billions of pesos (B PHP) unless marked
+          PHP/share or otherwise.
+        </p>
         <div className="report-grid-charts">
           <MetricBarChart
             title="Book Value — YoY"
+            unit="PHP/share"
             data={report.charts.bookValue}
             color={METRIC_COLORS.bookValue}
           />
           <MetricBarChart
             title="Net Income — YoY"
+            unit="B PHP"
             data={report.charts.netIncome}
             color={METRIC_COLORS.netIncome}
           />
           <MetricBarChart
             title="Total Assets — YoY"
+            unit="B PHP"
             data={report.charts.assets}
             color={METRIC_COLORS.assets}
           />
           {report.chartVisibility?.liabilities !== false && (
             <MetricBarChart
               title="Total Liabilities — YoY"
+              unit="B PHP"
               data={report.charts.liabilities}
               color={METRIC_COLORS.liabilities}
             />
@@ -203,6 +242,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.revenue !== false && (
             <MetricBarChart
               title="Revenue — YoY"
+              unit="B PHP"
               data={report.charts.revenue}
               color={METRIC_COLORS.revenue}
             />
@@ -210,6 +250,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.eps !== false && (
             <MetricBarChart
               title="EPS — YoY"
+              unit="PHP/share"
               data={report.charts.eps}
               color={METRIC_COLORS.eps}
             />
@@ -217,6 +258,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.loans && (
             <MetricBarChart
               title="Total Loans — YoY"
+              unit="B PHP"
               data={report.charts.loans}
               color={METRIC_COLORS.loans}
             />
@@ -224,6 +266,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.deposits && (
             <MetricBarChart
               title="Total Deposits — YoY"
+              unit="B PHP"
               data={report.charts.deposits}
               color={METRIC_COLORS.deposits}
             />
@@ -231,20 +274,23 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.ldr && (
             <MetricBarChart
               title="Loans / Deposits — YoY"
+              unit="×"
               data={report.charts.ldr}
               color={METRIC_COLORS.ldr}
             />
           )}
           {report.chartVisibility?.nplRatio && (
             <MetricBarChart
-              title="NPL Ratio — YoY %"
+              title="NPL Ratio — YoY"
+              unit="%"
               data={report.charts.nplRatio}
               color={METRIC_COLORS.nplRatio}
             />
           )}
           {report.chartVisibility?.equityAssets && (
             <MetricBarChart
-              title="Equity / Assets — YoY %"
+              title="Equity / Assets — YoY"
+              unit="%"
               data={report.charts.equityAssets}
               color={METRIC_COLORS.equityAssets}
             />
@@ -252,13 +298,15 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.nii && (
             <MetricBarChart
               title="Net Interest Income — YoY"
+              unit="B PHP"
               data={report.charts.nii}
               color={METRIC_COLORS.nii}
             />
           )}
           {report.chartVisibility?.outstandingShares && (
             <MetricBarChart
-              title="Outstanding Shares — YoY (M)"
+              title="Outstanding Shares — YoY"
+              unit="M shares"
               data={report.charts.outstandingShares}
               color={METRIC_COLORS.outstandingShares}
             />
@@ -267,13 +315,14 @@ export default function CompanyReport({ company, onBack, thresholds }) {
             <MetricBarChart
               title={
                 report.roicMeta?.mode === 'proper'
-                  ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY %`
+                  ? `ROIC${report.roicMeta?.statementScope ? ` (${report.roicMeta.statementScope})` : ''} — YoY`
                   : report.roicMeta?.mode === 'equity'
-                    ? 'Capital return (NI / equity) — YoY %'
+                    ? 'Capital return (NI / equity) — YoY'
                     : report.roicMeta?.mode === 'na'
                       ? 'Capital return — N/A'
-                      : 'ROIC (proxy) — YoY %'
+                      : 'ROIC (proxy) — YoY'
               }
+              unit="%"
               data={report.charts.roic}
               color={METRIC_COLORS.roic}
             />
@@ -281,6 +330,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           {report.chartVisibility?.debtEquity !== false && (
             <MetricBarChart
               title="Debt / Equity — YoY"
+              unit="×"
               data={report.charts.debtEquity}
               color={METRIC_COLORS.debtEquity}
             />
@@ -303,28 +353,28 @@ export default function CompanyReport({ company, onBack, thresholds }) {
                 <tr>
                   <td>Total Assets</td>
                   <td className="num">
-                    {bvDer.assets != null ? `${formatBillions(bvDer.assets)} B` : '—'}
+                    {bvDer.assets != null ? `${formatBillions(bvDer.assets)} B PHP` : '—'}
                   </td>
                 </tr>
                 <tr>
                   <td>Total Liabilities</td>
                   <td className="num">
                     {bvDer.liabilities != null
-                      ? `${formatBillions(bvDer.liabilities)} B`
+                      ? `${formatBillions(bvDer.liabilities)} B PHP`
                       : '—'}
                   </td>
                 </tr>
                 <tr>
                   <td>Cash &amp; Equivalents</td>
                   <td className="num">
-                    {bvDer.cash != null ? `${formatBillions(bvDer.cash)} B` : '—'}
+                    {bvDer.cash != null ? `${formatBillions(bvDer.cash)} B PHP` : '—'}
                   </td>
                 </tr>
                 <tr>
                   <td>Current Liabilities</td>
                   <td className="num">
                     {bvDer.currentLiabilities != null
-                      ? `${formatBillions(bvDer.currentLiabilities)} B`
+                      ? `${formatBillions(bvDer.currentLiabilities)} B PHP`
                       : '—'}
                   </td>
                 </tr>
@@ -332,14 +382,14 @@ export default function CompanyReport({ company, onBack, thresholds }) {
                   <td>IC (A − Cash − CL)</td>
                   <td className="num">
                     {bvDer.investedCapital != null
-                      ? `${formatBillions(bvDer.investedCapital)} B`
+                      ? `${formatBillions(bvDer.investedCapital)} B PHP`
                       : '—'}
                   </td>
                 </tr>
                 <tr>
                   <td>Equity (A − L)</td>
                   <td className="num">
-                    {bvDer.equity != null ? `${formatBillions(bvDer.equity)} B` : '—'}
+                    {bvDer.equity != null ? `${formatBillions(bvDer.equity)} B PHP` : '—'}
                   </td>
                 </tr>
                 <tr>
@@ -370,6 +420,7 @@ export default function CompanyReport({ company, onBack, thresholds }) {
           <div className="report-dividends-block">
             <MetricBarChart
               title="Common Dividends / Year"
+              unit="PHP/share"
               data={report.charts.dividends}
               color={METRIC_COLORS.dividends}
               height={140}
@@ -466,14 +517,14 @@ export default function CompanyReport({ company, onBack, thresholds }) {
       </details>
 
       <details className="report-section-disclosure">
-        <summary>News</summary>
-        <TickerNews companyId={company.id} ticker={report.displayTicker} />
+        <summary>News — headlines for this ticker</summary>
+        <TickerNews companyId={company.id} ticker={report.displayTicker} embedded />
       </details>
 
       <footer className="report-footer">
         <div className="report-note-block">
           <strong>SYS_NOTE:</strong> Built from PSE EDGE annual filings. Quarterly figures
-          appear when they are in the registry. News may be incomplete.
+          appear when they are in the registry. News is optional depth and may be incomplete.
         </div>
         <div className="report-disclaimer">
           For research only — not investment advice. Confirm figures against official

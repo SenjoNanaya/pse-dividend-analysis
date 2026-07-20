@@ -26,6 +26,12 @@
   /* Compare line strokes — darker for ≥3:1 on beige */
   --color-nier-chart-compare-slate: #3d4a52;
   --color-nier-chart-compare-olive: #3f4a36;
+  /* Table ratio cues — olive pass / brass fail (not casino green/red) */
+  /* Pass ink darkened for ≥4.5:1 on the olive wash */
+  --color-nier-signal-pass: #2a3124;
+  --color-nier-signal-fail: var(--color-nier-orange-ink);
+  --surface-nier-signal-pass: color-mix(in srgb, var(--color-nier-chart-olive) 18%, transparent);
+  --surface-nier-signal-fail: color-mix(in srgb, var(--color-nier-orange) 22%, transparent);
 
   --font-nier: "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
 
@@ -65,25 +71,16 @@
   --surface-nier-panel: color-mix(in srgb, var(--color-nier-light) 40%, transparent);
   --surface-nier-inner: color-mix(in srgb, var(--color-nier-light) 42%, transparent);
   --surface-nier-panel-mid: color-mix(in srgb, var(--color-nier-light) 45%, transparent);
-  --surface-nier-title: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
+  /* Opaque — never mix with transparent (dark grid parents would muddy the fill) */
+  --surface-nier-title: color-mix(in srgb, var(--color-nier-light) 55%, var(--color-nier-bg));
   --surface-nier-raised: color-mix(in srgb, var(--color-nier-light) 70%, transparent);
   --surface-nier-input: color-mix(in srgb, var(--color-nier-light) 75%, transparent);
   --shadow-nier-lift-soft: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
   --shadow-nier-lift: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
   --shadow-nier-lift-strong: 3px 3px 0 color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
 
-  --animate-fade-in: fade-in 0.45s var(--ease-nier-out) forwards;
-  --animate-wipe-in: wipe-in 0.55s var(--ease-nier-out) forwards;
-
-  @keyframes fade-in {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  @keyframes wipe-in {
-    from { clip-path: inset(0 100% 0 0); opacity: 0.4; }
-    to { clip-path: inset(0 0 0 0); opacity: 1; }
-  }
+  /* Transform-only — never opacity/clip-path gate (paused motion must stay readable) */
+  --animate-fade-in: nier-view-settle var(--duration-nier-ui) var(--ease-nier-out) both;
 }
 
 /* ==========================================================================
@@ -190,8 +187,9 @@ body {
 
 .nier-skip-link {
   position: absolute;
-  left: 0.75rem;
-  top: 0.75rem;
+  /* Absolute coords ignore parent padding — include insets explicitly */
+  left: max(0.75rem, env(safe-area-inset-left, 0));
+  top: max(0.75rem, env(safe-area-inset-top, 0));
   z-index: var(--z-toast);
   padding: 0.65rem 1rem;
   background: var(--color-nier-dark);
@@ -239,15 +237,29 @@ body {
 .nier-shell {
   position: relative;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 0 clamp(1rem, 3vw, 2.5rem) 1.5rem;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-right: max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-right, 0));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom, 0));
+  padding-left: max(clamp(1rem, 3vw, 2.5rem), env(safe-area-inset-left, 0));
 }
 
 .nier-shell-body {
   flex: 1;
   padding-top: 0.75rem;
   padding-bottom: 0.75rem;
+}
+
+.nier-shell--sheet-open .nier-shell-body {
+  padding-bottom: min(72vh, 34rem);
+  padding-bottom: min(72dvh, 34rem);
+}
+
+/* Page chrome behind modal sheet (receives `inert` while sheet is open) */
+.nier-sheet-background {
+  min-width: 0;
 }
 
 /* Analog menu rails — score/border motif from CodePen + NIER heritage */
@@ -442,6 +454,30 @@ body {
   text-wrap: balance;
 }
 
+/* Task chrome (registry / watchlist / compare / report): quiet location, not brand shout */
+.nier-chrome-title {
+  margin: 0;
+  color: var(--color-nier-dark-muted);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: var(--tracking-ui);
+  text-transform: uppercase;
+  text-wrap: balance;
+  text-shadow: none;
+}
+.nier-chrome-meta {
+  color: var(--color-nier-dark-muted);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: var(--tracking-ui);
+  text-transform: uppercase;
+  text-align: right;
+}
+.nier-chrome-meta .nier-chrome-meta-value {
+  color: var(--color-nier-orange-ink);
+  font-weight: 600;
+}
+
 .nier-title-ghost {
   position: relative;
 }
@@ -512,8 +548,20 @@ body {
   background-color: transparent;
 }
 .nier-btn:disabled {
-  opacity: 0.45;
+  opacity: 1;
+  color: var(--color-nier-dark-muted);
+  border-color: color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
+  background-color: var(--surface-nier-faint);
   pointer-events: none;
+  cursor: not-allowed;
+}
+.nier-btn:disabled::before {
+  transform: scaleX(0);
+}
+.nier-btn--ink:disabled {
+  background-color: color-mix(in srgb, var(--color-nier-dark) 42%, var(--color-nier-bg));
+  color: var(--color-nier-bg);
+  border-color: transparent;
 }
 
 /* Dense chrome (headers, trays) — keeps ≥2.5rem touch target */
@@ -522,6 +570,21 @@ body {
   font-size: var(--text-dense);
   min-height: 2.5rem;
   letter-spacing: 0.08em;
+}
+
+/* Dark resting face — primary path on sparse surfaces (landing). */
+.nier-btn--ink {
+  background-color: var(--color-nier-dark);
+  color: var(--color-nier-bg);
+}
+.nier-btn--ink::before {
+  background-color: var(--color-nier-light);
+}
+.nier-btn--ink:hover:not(:disabled),
+.nier-btn--ink:focus-visible:not(:disabled),
+.nier-btn--ink:active:not(:disabled) {
+  color: var(--color-nier-dark);
+  background-color: transparent;
 }
 
 /* Proper nouns — readable title case inside an otherwise uppercase UI */
@@ -584,6 +647,35 @@ body {
   overflow-x: auto;
   box-shadow: var(--shadow-nier-lift);
   contain: layout paint;
+}
+.nier-kbd-legend {
+  margin: 0;
+  padding: 0.4rem 0.85rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-nier-gray) 55%, transparent);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  color: var(--color-nier-dark-muted);
+  background: color-mix(in srgb, var(--color-nier-bg) 55%, transparent);
+}
+.nier-kbd-legend-label {
+  font-weight: 700;
+  color: var(--color-nier-dark);
+  letter-spacing: 0.1em;
+  margin-right: 0.35rem;
+}
+.nier-kbd {
+  display: inline-block;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--color-nier-dark);
+  background: var(--surface-nier-input);
+  color: var(--color-nier-dark);
+  font: inherit;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .nier-table {
   width: 100%;
@@ -667,6 +759,20 @@ body {
   text-align: center;
   vertical-align: middle;
 }
+/* WATCH word header — slightly wider than ★-only compare col */
+.nier-col-watch {
+  width: 4.25rem;
+  min-width: 4.25rem;
+}
+.nier-watch-col-label {
+  display: inline-block;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: inherit;
+}
 .nier-compare-check-wrap {
   display: inline-flex;
   align-items: center;
@@ -695,6 +801,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.35rem;
   min-width: 2.75rem;
   min-height: 2.75rem;
   margin: -0.35rem;
@@ -706,6 +813,22 @@ body {
   line-height: 1;
   cursor: pointer;
   transition: color var(--duration-nier-mid) var(--ease-nier-out), background-color var(--duration-nier-mid) ease;
+}
+.nier-watch-btn--labeled {
+  margin: 0;
+  padding: 0 0.65rem;
+  border-top: 1px solid var(--color-nier-dark);
+  border-bottom: 1px solid var(--color-nier-dark);
+  background: var(--color-nier-light);
+  font-size: var(--text-dense);
+  font-weight: 500;
+  letter-spacing: var(--tracking-ui);
+  text-transform: uppercase;
+  min-height: 2.75rem;
+}
+.nier-watch-btn-label {
+  font-size: var(--text-dense);
+  letter-spacing: var(--tracking-ui);
 }
 .nier-watch-btn:hover:not(:disabled) {
   color: var(--color-nier-orange-ink);
@@ -726,10 +849,34 @@ body {
   outline: 2px solid var(--color-nier-dark);
   outline-offset: 2px;
 }
+/* Preview action row: cancel table-cell negative margin so the star aligns with Open report */
+.nier-preview-actions .nier-watch-btn {
+  margin: 0;
+}
 
 .watchlist-page {
   width: 100%;
 }
+
+.watchlist-page--sheet-open {
+  padding-bottom: min(72vh, 34rem);
+  padding-bottom: min(72dvh, 34rem);
+}
+
+/* Empty: let the teach panel breathe — no toolbar / rules chrome above it */
+.watchlist-page--empty .nier-dashboard-stack {
+  gap: var(--space-md);
+}
+.watchlist-page--empty .nier-table-status {
+  padding-top: var(--space-lg);
+}
+.watchlist-empty {
+  padding: var(--space-lg) var(--space-md);
+  border: 1px solid var(--color-nier-dark);
+  background: var(--surface-nier-panel-soft);
+  box-shadow: none;
+}
+
 .watchlist-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -737,6 +884,19 @@ body {
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.75rem;
+}
+.watchlist-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.watchlist-tools-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 100%;
 }
 .watchlist-copy {
   margin: 0;
@@ -746,6 +906,43 @@ body {
   letter-spacing: 0.02em;
   line-height: 1.5;
   color: var(--color-nier-dark-muted);
+}
+
+/* Narrow: Tools (+ armed Compare) in header meta; Alert limits stays on live-rules */
+@media (max-width: 767px) {
+  .watchlist-page--narrow .watchlist-header-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem 0.5rem;
+  }
+
+  .watchlist-page--narrow .watchlist-tools-panel {
+    justify-content: flex-end;
+    margin: 0 0 0.35rem;
+  }
+
+  .watchlist-page--narrow .watchlist-tools-panel .watchlist-clear-confirm {
+    flex: 1 1 100%;
+  }
+}
+.watchlist-clear-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.65rem;
+  max-width: min(36rem, 100%);
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-orange) 10%, transparent);
+}
+.watchlist-clear-confirm-copy {
+  margin: 0;
+  flex: 1 1 12rem;
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  color: var(--color-nier-dark);
 }
 .watchlist-warn {
   margin: 0 0 0.75rem;
@@ -768,7 +965,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.55rem;
 }
 .watchlist-alerts-title {
   font-size: var(--text-caption);
@@ -777,50 +974,66 @@ body {
 }
 .watchlist-alerts-list {
   margin: 0;
-  padding-left: 1.1rem;
-  font-size: var(--text-caption);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1.55;
-}
-.watchlist-alerts-list li + li {
-  margin-block-start: 0.25rem;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 .watchlist-alert-btn {
-  display: inline;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 2.75rem;
   margin: 0;
-  padding: 0.15rem 0.2rem;
-  border: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--color-nier-dark);
+  background: var(--surface-nier-raised);
+  color: var(--color-nier-dark);
+  font-family: var(--font-nier);
+  font-size: var(--text-label);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.35;
   text-align: left;
+  text-wrap: pretty;
   cursor: pointer;
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.18em;
+  text-decoration: none;
 }
 .watchlist-alert-btn:hover,
 .watchlist-alert-btn:focus-visible {
-  border-color: var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-dark) 8%, transparent);
-  outline: none;
+  background: var(--surface-nier-title);
+  outline: 2px solid var(--color-nier-dark);
+  outline-offset: 2px;
 }
 .watchlist-alert-btn--active {
-  border-color: var(--color-nier-dark);
-  background: color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
+  background: color-mix(in srgb, var(--color-nier-dark) 12%, var(--color-nier-light));
   font-weight: 700;
-  text-decoration: none;
 }
 .watchlist-alerts-hint {
-  margin: 0.45rem 0 0;
+  margin: 0.55rem 0 0;
   font-size: var(--text-caption);
   letter-spacing: 0.02em;
   line-height: 1.4;
-  color: var(--color-nier-dark);
-  opacity: 0.8;
+  color: var(--color-nier-dark-muted);
+  text-transform: none;
+}
+/* Narrow: slightly taller rows + safer gap between taps */
+@media (max-width: 767px) {
+  .watchlist-alerts {
+    padding: 0.75rem;
+  }
+  .watchlist-alerts-list {
+    gap: 0.5rem;
+  }
+  .watchlist-alert-btn {
+    min-height: 3rem;
+    padding: 0.7rem 0.75rem;
+  }
+  .watchlist-alerts-head .nier-btn--compact {
+    min-height: 2.75rem;
+  }
 }
 .nier-preview-notice {
   margin: 0;
@@ -832,19 +1045,31 @@ body {
   line-height: 1.45;
   color: var(--color-nier-orange-ink);
 }
+/* Primary shortlist control — named preview target (not a focusable <tr>) */
+.nier-ticker-btn,
 .watchlist-ticker-btn {
   background: none;
   border: none;
-  padding: 0;
+  margin: 0;
+  padding: 0.35rem 0.2rem;
+  min-height: 2.5rem;
+  min-width: 2.75rem;
   color: inherit;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
+  text-align: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+.nier-ticker-btn:hover,
 .watchlist-ticker-btn:hover {
   color: var(--color-nier-dark);
+}
+.nier-ticker-btn:focus-visible,
+.watchlist-ticker-btn:focus-visible {
+  outline: 2px solid var(--color-nier-dark);
+  outline-offset: 2px;
 }
 
 .nier-compare-tray {
@@ -906,7 +1131,7 @@ body {
   gap: 0.4rem;
 }
 .nier-compare-tray-actions .nier-btn:disabled {
-  opacity: 0.35;
+  /* Inherit solid disabled face from .nier-btn:disabled (no opacity mute) */
   cursor: not-allowed;
 }
 
@@ -931,12 +1156,20 @@ body {
 }
 .compare-topbar {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   border-bottom: 2px solid var(--color-nier-dark);
   padding-bottom: 0.75rem;
   margin-bottom: 1.5rem;
-  gap: 1rem;
+  gap: 0.75rem 1rem;
+}
+.compare-topbar-lead {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  min-width: 0;
 }
 .compare-tickers {
   display: grid;
@@ -954,7 +1187,10 @@ body {
 .compare-ticker-name {
   background: none;
   border: 0;
-  padding: 0.25rem 0;
+  padding: 0.35rem 0;
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
   color: var(--color-nier-orange-ink);
   font-size: var(--text-lead);
   font-weight: 500;
@@ -1093,16 +1329,11 @@ body {
 h1, h2, h3 {
   text-wrap: balance;
 }
-.compare-heading {
-  font-size: var(--text-heading);
-  font-weight: 600;
-  letter-spacing: var(--tracking-ui);
-  text-transform: uppercase;
-}
 .compare-panel-toggle {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  align-items: stretch;
 }
 .compare-tab-active {
   color: var(--color-nier-bg) !important;
@@ -1120,6 +1351,7 @@ h1, h2, h3 {
   border-bottom: 1px solid var(--color-nier-dark);
   padding-bottom: 0.35rem;
   margin: 1.25rem 0 0.85rem;
+  color: inherit;
 }
 .compare-charts-section {
   margin-top: 0.5rem;
@@ -1145,7 +1377,7 @@ h1, h2, h3 {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  margin-bottom: 0.35rem;
+  margin-bottom: 0.15rem;
 }
 .compare-chart-empty {
   height: 200px;
@@ -1177,6 +1409,22 @@ h1, h2, h3 {
   padding-bottom: 0.75rem;
   margin-bottom: 1.5rem;
 }
+.nier-dashboard-header-lead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.nier-dashboard-header-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  min-width: 0;
+  width: 100%;
+}
 .nier-dashboard-header .nier-btn {
   /* Keep header actions touch-safe even with text-xs / py-1 utilities */
   min-height: 2.75rem;
@@ -1189,10 +1437,12 @@ h1, h2, h3 {
     justify-content: space-between;
     align-items: center;
   }
-}
-
-.nier-landing-hero {
-  @apply max-w-2xl mx-auto flex flex-col gap-6 text-center lg:text-left my-auto;
+  .nier-dashboard-header-title {
+    width: auto;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 1rem;
+  }
 }
 
 .nier-dashboard-stack {
@@ -1231,31 +1481,11 @@ h1, h2, h3 {
   grid-template-columns: 1fr;
 }
 
-/* Focus mode: ~10% denser so ratio columns fit without heavy horizontal scroll. */
+/* Wide table: full width for ratio columns; density from column choice, not zoom. */
 .nier-dashboard-stack--focus {
   max-width: none;
   width: 100%;
-  padding-inline: 0.5rem;
-}
-
-.nier-dashboard-grid--focus .nier-table-container {
-  zoom: 0.9;
-}
-
-@supports not (zoom: 1) {
-  .nier-dashboard-grid--focus .nier-table-container {
-    font-size: 90%;
-  }
-
-  .nier-dashboard-grid--focus .nier-table th {
-    padding: 0.75rem 0.7rem;
-    font-size: var(--text-dense);
-  }
-
-  .nier-dashboard-grid--focus .nier-table td {
-    padding: 0.7rem 0.7rem;
-    font-size: var(--text-ui);
-  }
+  padding-inline: var(--space-md);
 }
 
 .nier-btn--pressed {
@@ -1266,10 +1496,33 @@ h1, h2, h3 {
   transform: scaleX(1);
 }
 
+/* Secondary dismiss / tip actions — solid face, no wipe shout */
+.nier-btn--quiet {
+  background: transparent;
+  color: var(--color-nier-dark-muted);
+  border: 1px solid color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
+  box-shadow: none;
+}
+.nier-btn--quiet::before {
+  display: none;
+}
+.nier-btn--quiet:hover,
+.nier-btn--quiet:focus-visible {
+  color: var(--color-nier-dark);
+  border-color: var(--color-nier-dark);
+  background: color-mix(in srgb, var(--color-nier-light) 55%, transparent);
+}
+
 .nier-preview-bar {
   border: 1px solid var(--color-nier-dark);
   background: var(--surface-nier-panel-soft);
   box-shadow: 2px 2px 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+}
+
+.nier-preview-bar:has(.nier-preview-bar-empty) {
+  border-color: color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  background: transparent;
+  box-shadow: none;
 }
 
 .nier-preview-bar-inner {
@@ -1284,7 +1537,55 @@ h1, h2, h3 {
   align-items: center;
   justify-content: center;
   gap: 0.35rem 0.75rem;
-  min-height: 2.75rem;
+  min-height: 2.5rem;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+}
+.nier-preview-empty-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem 0.75rem;
+  width: 100%;
+}
+.nier-preview-empty-copy {
+  margin: 0;
+  max-width: 40rem;
+  font-size: var(--text-caption);
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  color: var(--color-nier-dark-muted);
+  text-align: center;
+  text-wrap: pretty;
+}
+@media (max-width: 767px) {
+  /* One row tip — stacked Got it was eating a full shortlist peek on SE */
+  .nier-preview-bar-empty {
+    min-height: 0;
+    padding: 0.4rem 0.55rem;
+  }
+  .nier-preview-empty-row {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.45rem;
+  }
+  .nier-preview-empty-row .nier-btn {
+    width: auto;
+    flex: 0 0 auto;
+    min-height: 2.5rem;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+  }
+  .nier-preview-empty-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    font-size: var(--text-caption);
+    line-height: 1.3;
+  }
 }
 
 .nier-preview-bar-id {
@@ -1367,11 +1668,18 @@ h1, h2, h3 {
   padding: 1px 5px;
   border: 1px solid var(--color-nier-dark);
   white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+.nier-dq-chip-label--short {
+  display: none;
 }
 
 .nier-dq-chip--ok {
-  border-color: transparent;
-  font-weight: 500;
+  /* Quiet status — avoid solid chrome that reads as a tappable button */
+  border-color: color-mix(in srgb, var(--color-nier-dark) 22%, transparent);
+  background: transparent;
+  font-weight: 700;
   color: var(--color-nier-dark-muted);
 }
 
@@ -1404,34 +1712,628 @@ h1, h2, h3 {
   overflow: auto;
 }
 
-.nier-news-drawer {
-  border-top: 1px dotted color-mix(in srgb, var(--color-nier-dark) 45%, transparent);
-  padding-top: var(--space-sm);
+/* Narrow registry: shortlist columns + bottom preview sheet */
+@media (max-width: 767px) {
+  .nier-col-wide,
+  .nier-col-ratio {
+    display: none;
+  }
+
+  .nier-dashboard-grid--narrow {
+    grid-template-columns: 1fr;
+  }
+
+  .nier-dashboard-header {
+    gap: 0.3rem;
+    margin-bottom: 0.4rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .nier-dashboard-header-lead {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 0.4rem;
+  }
+
+  .nier-dashboard-header .nier-chrome-title {
+    font-size: var(--text-label);
+    line-height: 1.2;
+  }
+
+  .nier-controls {
+    gap: 0.4rem;
+  }
+
+  .nier-filter-tools--panel {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .nier-filter-tools--panel .nier-btn {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .nier-kbd-legend {
+    display: none;
+  }
+
+  .nier-ticker-btn,
+  .watchlist-ticker-btn {
+    min-height: 2.75rem;
+  }
+
+  .nier-table-column .nier-table th,
+  .nier-table-column .nier-table td {
+    padding: 0.7rem 0.55rem;
+  }
+
+  /* Shortlist: WATCH(★) · ticker(+sector) · YLD · CHK · DATA — reserved trust widths */
+  .nier-dashboard-grid--narrow .nier-table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .nier-dashboard-grid--narrow .nier-check-col {
+    width: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  /* WATCH fits SE shortlist; cells stay ★/☆ under this word */
+  .nier-dashboard-grid--narrow .nier-col-watch {
+    width: 3.15rem;
+    min-width: 3.15rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-watch-col-label {
+    font-size: var(--text-caption);
+    letter-spacing: 0.04em;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-yield {
+    width: 3.15rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-checks {
+    width: 3.4rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-data {
+    width: 2.95rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-ticker {
+    width: auto;
+  }
+
+  /* Short headers free width for values (aria-label keeps full names) */
+  .nier-dashboard-grid--narrow .nier-sort-label:has(.nier-sort-label--short) .nier-sort-label--full {
+    display: none;
+  }
+
+  .nier-dashboard-grid--narrow .nier-sort-label--short {
+    display: inline;
+  }
+
+  .nier-dashboard-grid--narrow .nier-dq-chip-label--full {
+    display: none;
+  }
+
+  .nier-dashboard-grid--narrow .nier-dq-chip-label--short {
+    display: inline;
+  }
+
+  .nier-dashboard-grid--narrow .nier-ticker-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.08rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .nier-dashboard-grid--narrow .nier-ticker-btn {
+    min-height: 2rem;
+    padding: 0.2rem 0.1rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-ticker-sector {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+    text-transform: none;
+  }
+
+  /* Sort control owns the th — cell padding was starving width (~39px @375) */
+  .nier-dashboard-grid--narrow .nier-table thead th:has(.nier-sort-btn) {
+    padding: 0;
+    min-width: 0;
+    vertical-align: middle;
+  }
+
+  .nier-dashboard-grid--narrow .nier-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.1rem;
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.25rem;
+    letter-spacing: 0.04em;
+    font-size: var(--text-dense);
+    box-sizing: border-box;
+  }
+
+  .nier-dashboard-grid--narrow .nier-table th,
+  .nier-dashboard-grid--narrow .nier-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Trust values must not clip mid-token (beat th/td overflow:hidden above) */
+  .nier-dashboard-grid--narrow .nier-table th.nier-col-yield,
+  .nier-dashboard-grid--narrow .nier-table td.nier-col-yield,
+  .nier-dashboard-grid--narrow .nier-table th.nier-col-checks,
+  .nier-dashboard-grid--narrow .nier-table td.nier-col-checks,
+  .nier-dashboard-grid--narrow .nier-table th.nier-col-data,
+  .nier-dashboard-grid--narrow .nier-table td.nier-col-data {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .nier-dashboard-grid--narrow .nier-table td.nier-col-yield,
+  .nier-dashboard-grid--narrow .nier-table td.nier-col-checks {
+    letter-spacing: 0.01em;
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-table td.font-mono {
+    letter-spacing: 0.02em;
+  }
+
+  .nier-dashboard-grid--narrow .nier-checks-qualified {
+    letter-spacing: 0;
+  }
+
+  .nier-pagination-bar {
+    gap: var(--space-sm);
+    /*
+      List footer clearance: shell already pads max(1.5rem, inset), but SE-class
+      Safari reports inset 0 while the bottom toolbar still steals ~44px. Keep a
+      full touch-row of air beyond the inset so Previous/Next stay tappable.
+    */
+    padding-bottom: max(
+      2.75rem,
+      calc(0.75rem + env(safe-area-inset-bottom, 0px))
+    );
+    scroll-margin-bottom: max(
+      2.75rem,
+      calc(0.75rem + env(safe-area-inset-bottom, 0px))
+    );
+  }
+
+  .nier-pagination-bar .nier-btn {
+    flex: 1 1 auto;
+    min-height: 2.75rem;
+  }
 }
-.nier-news-drawer-summary {
+
+/* Very small phones: denser shortlist cells */
+@media (max-width: 380px) {
+  .nier-table-column .nier-table th,
+  .nier-table-column .nier-table td {
+    padding: 0.55rem 0.3rem;
+    font-size: var(--text-dense);
+    letter-spacing: 0.04em;
+  }
+
+  /* Keep sort hit boxes full-cell after denser th padding above */
+  .nier-dashboard-grid--narrow .nier-table thead th:has(.nier-sort-btn) {
+    padding: 0;
+  }
+
+  .nier-dashboard-grid--narrow .nier-sort-btn {
+    min-width: 0;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.2rem;
+  }
+
+  .nier-dq-chip {
+    font-size: var(--text-caption);
+    padding: 0.15rem 0.3rem;
+  }
+}
+
+/*
+  SE-class (~320): drop YLD so ticker(+sector) + CHK + DATA fit.
+  Yield remains in the preview sheet / desktop shortlist.
+*/
+@media (max-width: 359px) {
+  .nier-dashboard-grid--narrow .nier-col-yield {
+    display: none;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-checks {
+    width: 3.5rem;
+  }
+
+  .nier-dashboard-grid--narrow .nier-col-data {
+    width: 3.1rem;
+  }
+}
+
+.nier-preview-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
   cursor: pointer;
-  list-style: none;
-  font-size: var(--text-caption);
+}
+
+.nier-preview-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--z-modal);
+  /* Thumb sheet: tall enough for fails-first checklist + sticky actions */
+  max-height: min(72vh, 34rem);
+  max-height: min(72dvh, 34rem);
+  display: flex;
+  flex-direction: column;
+  border: 2px solid var(--color-nier-dark);
+  border-bottom: none;
+  background: var(--color-nier-bg);
+  box-shadow: 0 -4px 0 color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  padding-bottom: env(safe-area-inset-bottom, 0);
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.nier-preview-sheet-handle {
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 0.28rem;
+  margin: 0.55rem auto 0.35rem;
+  background: var(--color-nier-dark-muted);
+}
+
+.nier-preview-sheet-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--space-md) var(--space-sm);
+  -webkit-overflow-scrolling: touch;
+}
+
+.nier-preview-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-nier-dark) 30%, transparent);
+  padding-bottom: var(--space-sm);
+  flex-shrink: 0;
+}
+
+.nier-preview-sheet-id {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.nier-preview-sheet-ticker {
+  font-size: var(--text-title);
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
+  color: var(--color-nier-orange-ink);
   text-transform: uppercase;
+  line-height: 1.1;
+}
+
+.nier-preview-sheet-name {
+  margin-top: 0.2rem;
+  font-size: var(--text-dense);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
   color: var(--color-nier-dark-muted);
-  padding: 0.35rem 0;
-  min-height: 2.5rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-wrap: pretty;
+}
+
+.nier-preview-sheet-mcap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  font-size: var(--text-label);
+}
+
+.nier-preview-sheet-checks {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.nier-preview-sheet-checks .report-checklist-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.nier-preview-sheet-checks .report-score-row {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+/* Ratios live on the full report — strip caused wrap/overlap on SE-width sheets */
+.nier-preview-sheet-checks .report-ratio-strip {
+  display: none;
+}
+
+.nier-preview-sheet-checks .report-check-all-pass {
+  margin: 0;
+}
+
+.nier-preview-sheet-checks .report-check-all {
+  margin-top: 0;
+}
+
+.nier-preview-sheet-checks .report-check-all > summary {
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
 }
-.nier-news-drawer-summary::-webkit-details-marker {
+
+.nier-preview-sheet-head,
+.nier-preview-sheet-dq {
+  flex-shrink: 0;
+}
+
+/* Attention-only DQ — omitted when clean so the sheet isn’t an empty dashed box */
+.nier-preview-sheet-dq {
+  font-size: var(--text-caption);
+  border: 1px solid color-mix(in srgb, var(--color-nier-dark) 28%, transparent);
+  padding: 0;
+  background: transparent;
+}
+
+.nier-preview-sheet-dq > summary {
+  cursor: pointer;
+  list-style: none;
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+}
+
+.nier-preview-sheet-dq-tag {
+  flex: 0 0 auto;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-nier-dark);
+}
+
+.nier-preview-sheet-dq > summary::-webkit-details-marker {
   display: none;
 }
-.nier-news-drawer[open] .nier-news-drawer-summary {
-  margin-bottom: var(--space-xs);
+
+.nier-preview-sheet-dq[open] > summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-nier-dark) 22%, transparent);
   color: var(--color-nier-dark);
+}
+
+.nier-preview-sheet-dq .dq-panel-compact {
+  padding: 0.45rem 0.55rem 0.55rem;
+  margin: 0;
+}
+
+.nier-preview-sheet-actions {
+  flex-shrink: 0;
+  padding: var(--space-sm) var(--space-md);
+  /* Safe-area already on .nier-preview-sheet */
+  background: var(--color-nier-bg);
+  border-top: 1px solid color-mix(in srgb, var(--color-nier-dark) 30%, transparent);
+  box-shadow: 0 -3px 0 color-mix(in srgb, var(--color-nier-dark) 12%, transparent);
+}
+
+.nier-preview-actions--sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.nier-preview-actions--sheet > .nier-btn {
+  width: 100%;
+  min-height: 2.75rem;
+  justify-content: center;
+  text-align: center;
+}
+
+.nier-preview-actions-secondary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+.nier-preview-actions-secondary:has(> :only-child) {
+  grid-template-columns: 1fr;
+}
+
+.nier-preview-actions-secondary .nier-watch-btn,
+.nier-preview-actions-secondary .nier-btn {
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0;
+  justify-content: center;
+}
+
+/*
+  SE-class width (iPhone SE ~375) + short viewport / landscape:
+  denser chrome, one-row foot, no overlapping disclosures.
+*/
+@media (max-width: 430px), (max-height: 520px) {
+  .nier-preview-sheet-handle {
+    height: 0.22rem;
+    margin: 0.3rem auto 0.15rem;
+  }
+
+  .nier-preview-sheet-inner {
+    gap: 0.4rem;
+    padding-bottom: 0.35rem;
+  }
+
+  .nier-preview-sheet-head {
+    padding-bottom: 0.35rem;
+    gap: 0.4rem;
+  }
+
+  .nier-preview-sheet-ticker {
+    font-size: var(--text-heading);
+  }
+
+  .nier-preview-sheet-name {
+    -webkit-line-clamp: 1;
+    margin-top: 0.1rem;
+  }
+
+  .nier-preview-sheet-checks .nier-data-block-title {
+    display: none; /* score row carries the message */
+  }
+
+  .nier-preview-sheet-checks .report-check-all > summary {
+    min-height: 2.5rem;
+  }
+
+  .nier-preview-sheet-dq > summary {
+    min-height: 2.5rem;
+    padding: 0.3rem 0.55rem;
+  }
+
+  .nier-preview-sheet-actions {
+    padding: 0.3rem var(--space-md);
+  }
+
+  .nier-preview-actions--sheet {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 0.4rem;
+  }
+
+  .nier-preview-actions--sheet > .nier-btn {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    min-height: 2.5rem;
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+    font-size: var(--text-dense);
+  }
+
+  /* Flatten secondary into the same row: Open | Watch | × */
+  .nier-preview-actions--sheet .nier-preview-actions-secondary {
+    display: contents;
+  }
+
+  .nier-preview-actions--sheet .nier-preview-actions-secondary .nier-watch-btn,
+  .nier-preview-actions--sheet .nier-preview-actions-secondary .nier-btn {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 2.75rem;
+    min-height: 2.5rem;
+  }
+}
+
+/* Truly short viewports (Safari chrome / landscape): taller sheet, hide DQ */
+@media (max-height: 520px) {
+  .nier-shell--sheet-open .nier-shell-body,
+  .watchlist-page--sheet-open {
+    padding-bottom: min(92vh, 100%);
+    padding-bottom: min(92dvh, 100%);
+  }
+
+  .nier-preview-sheet {
+    height: min(92vh, 100%);
+    height: min(92dvh, 100%);
+    max-height: min(92vh, 100%);
+    max-height: min(92dvh, 100%);
+  }
+
+  /* Chip already in head; full DQ on report */
+  .nier-preview-sheet-dq {
+    display: none;
+  }
+}
+
+
+@media (max-width: 380px) {
+  .nier-preview-sheet-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .nier-preview-sheet-mcap {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .nier-preview-sheet-checks .report-check-cols-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nier-preview-sheet {
+    transition: none;
+  }
+}
+
+@media (min-width: 768px) {
+  .nier-preview-sheet,
+  .nier-preview-sheet-backdrop {
+    display: none;
+  }
 }
 
 .nier-table-column .nier-table th,
 .nier-table-column .nier-table td {
-  padding: 0.7rem 0.65rem;
+  padding: 0.8rem 0.75rem;
 }
 .nier-table-column .nier-col-sector {
   max-width: 8.5rem;
@@ -1443,8 +2345,24 @@ h1, h2, h3 {
   white-space: nowrap;
 }
 
+/* Sector under ticker is narrow-only (desktop keeps SECTOR column) */
+.nier-ticker-sector {
+  display: none;
+}
+
+.nier-sort-label--short {
+  display: none;
+}
+
 .nier-search-form {
-  @apply flex gap-2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+.nier-search-form .nier-input {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .nier-filter-bar {
@@ -1457,9 +2375,255 @@ h1, h2, h3 {
   /* Flat chrome — lift reserved for table / preview units */
   box-shadow: none;
 }
+/* Shortlist-first: Passed + Apply/Clear/Filters/Compare; Sector / Limits / Tools behind Filters */
+.nier-filter-bar--primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-sm) var(--space-md);
+}
+.nier-filter-bar--primary .nier-filter-field {
+  flex: 0 1 16rem;
+  min-width: min(100%, 12rem);
+}
+.nier-filter-bar--primary .nier-filter-actions--primary {
+  flex: 1 1 auto;
+  grid-column: unset;
+  min-width: min(100%, 14rem);
+}
+
+.nier-filter-tools-hint {
+  flex: 1 1 100%;
+  margin: 0;
+  font-size: var(--text-caption);
+  letter-spacing: 0.06em;
+  text-transform: none;
+  max-width: 48ch;
+}
+
+/* Peer strip: Sector / Limits / Tools — only when Filters is open */
+.nier-filter-peers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: calc(-1 * var(--space-xs));
+  margin-bottom: var(--space-xs);
+}
+.nier-filter-peers .nier-btn {
+  flex: 0 1 auto;
+  min-width: 5.5rem;
+}
+
+/*
+  Narrow density — must follow base .nier-filter-bar--primary { display:flex }
+  so grid + display:contents actually win the cascade on SE.
+*/
+@media (max-width: 767px) {
+  /* One row: input + Search — reclaim a full button row on SE */
+  .nier-search-form {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+
+  .nier-search-form .nier-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    letter-spacing: 0.04em;
+    min-height: 2.75rem;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+
+  .nier-search-form .nier-input::placeholder {
+    letter-spacing: 0.03em;
+  }
+
+  .nier-search-form .nier-btn {
+    width: auto;
+    flex: 0 0 auto;
+    min-width: 4.75rem;
+    min-height: 2.75rem;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+  }
+
+  /*
+    Passed + Apply/Clear/Filters share one 2-up grid
+    (display:contents flattens the action group).
+  */
+  .nier-filter-bar--primary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+    gap: 0.35rem;
+    padding: 0.45rem;
+  }
+
+  .nier-filter-peers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
+    margin-top: 0;
+    margin-bottom: 0.2rem;
+  }
+
+  .nier-filter-peers .nier-btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+    justify-content: center;
+    text-align: center;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+    font-size: var(--text-dense);
+  }
+
+  .nier-filter-bar--primary .nier-filter-field {
+    flex: unset;
+    width: auto;
+    min-width: 0;
+    gap: 0.2rem;
+  }
+
+  .nier-filter-bar--primary .nier-filter-field > span {
+    font-size: var(--text-caption);
+    letter-spacing: 0.08em;
+  }
+
+  .nier-filter-bar--primary .nier-select-trigger {
+    min-height: 2.75rem;
+    padding: 0.45rem 0.55rem;
+    font-size: var(--text-dense);
+  }
+
+  .nier-filter-bar--primary .nier-filter-actions--primary {
+    display: contents;
+  }
+
+  .nier-filter-bar--primary .nier-filter-actions--primary .nier-btn {
+    width: 100%;
+    min-height: 2.75rem;
+    justify-content: center;
+    text-align: center;
+    padding-left: 0.4rem;
+    padding-right: 0.4rem;
+    font-size: var(--text-dense);
+  }
+
+  .nier-filter-bar--primary .nier-live-rules,
+  .nier-filter-bar--primary .nier-filter-status,
+  .nier-filter-bar--primary .nier-filter-error {
+    grid-column: 1 / -1;
+    width: 100%;
+    font-size: var(--text-caption);
+    margin: 0;
+    padding: 0.1rem 0 0;
+    line-height: 1.25;
+  }
+
+  .nier-filter-bar--primary .nier-live-rules {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.35rem;
+    max-width: 100%;
+  }
+
+  .nier-filter-bar--primary .nier-live-rules-line {
+    flex: 1 1 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .nier-filter-bar--primary .nier-live-rules-tag {
+    flex: 0 0 auto;
+    display: inline;
+  }
+
+  /* Watchlist alert rules: same one-line density as registry live rules */
+  .nier-live-rules-row {
+    margin: 0 0 0.45rem;
+    gap: 0.35rem 0.5rem;
+    align-items: center;
+  }
+
+  .nier-live-rules-row .nier-live-rules {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2rem 0.35rem;
+    min-width: 0;
+    flex: 1 1 auto;
+    font-size: var(--text-caption);
+    padding: 0;
+    line-height: 1.25;
+  }
+
+  .nier-live-rules-row .nier-live-rules-line {
+    flex: 1 1 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .nier-live-rules-row .nier-live-rules-tag {
+    flex: 0 0 auto;
+  }
+
+  .nier-live-rules-row .nier-live-rules-edit {
+    display: none;
+  }
+
+  .nier-live-rules-row .nier-btn {
+    flex: 0 0 auto;
+    min-height: 2.5rem;
+  }
+}
+
+.nier-filter-bar--secondary {
+  border-style: dashed;
+  background: var(--surface-nier-faint);
+}
+.nier-filter-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  padding-top: var(--space-xs);
+  border-top: 1px dotted color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
+}
+.nier-filter-tools--panel {
+  grid-column: unset;
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px dashed var(--color-nier-dark);
+  border-top: 1px dashed var(--color-nier-dark);
+  background: var(--surface-nier-faint);
+}
 .nier-filter-bar--thresholds {
   border-style: dashed;
   background: var(--surface-nier-faint);
+}
+.nier-threshold-bridge {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.25rem 0 0;
+  font-size: var(--text-caption);
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  color: var(--color-nier-dark-muted);
 }
 .nier-row-hint {
   margin: 0.35rem 0 0;
@@ -1476,8 +2640,29 @@ h1, h2, h3 {
   font-weight: 500;
 }
 .nier-checks-qualified {
-  color: var(--color-nier-orange);
+  color: var(--color-nier-orange-ink);
   font-weight: 700;
+}
+
+/* Registry / watchlist numeric cues vs thresholds */
+.nier-cell-signal {
+  font-variant-numeric: tabular-nums;
+}
+.nier-cell-signal--pass {
+  background: var(--surface-nier-signal-pass);
+  color: var(--color-nier-signal-pass);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-nier-signal-pass) 35%, transparent);
+}
+.nier-cell-signal--fail {
+  background: var(--surface-nier-signal-fail);
+  color: var(--color-nier-signal-fail);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-nier-signal-fail) 30%, transparent);
+}
+td.nier-cell-signal--pass,
+td.nier-cell-signal--fail {
+  padding-inline: 0.45rem;
 }
 .nier-subsector-inline {
   font-size: 0.92em;
@@ -1510,11 +2695,14 @@ h1, h2, h3 {
 .report-section-disclosure > summary {
   cursor: pointer;
   list-style: none;
+  display: flex;
+  align-items: center;
+  min-height: 2.5rem;
   font-size: var(--text-caption);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-nier-dark-muted);
-  padding: 0.25rem 0;
+  padding: 0.45rem 0;
 }
 .report-check-all > summary::-webkit-details-marker,
 .dq-compact-detail > summary::-webkit-details-marker,
@@ -1529,7 +2717,7 @@ h1, h2, h3 {
 .report-method-disclosure > summary::before,
 .report-section-disclosure > summary::before {
   content: "+ ";
-  color: var(--color-nier-orange);
+  color: var(--color-nier-orange-ink);
 }
 .report-check-all[open] > summary::before,
 .dq-compact-detail[open] > summary::before,
@@ -1572,6 +2760,20 @@ h1, h2, h3 {
   font-size: var(--text-ui);
   letter-spacing: 0.06em;
 }
+.nier-threshold-field .nier-threshold-input::placeholder {
+  letter-spacing: 0.02em;
+  text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nier-threshold-field.is-disabled {
+  opacity: 1; /* solid mute via disabled face, not opacity wash */
+}
+.nier-threshold-field.is-disabled .nier-threshold-input:disabled {
+  color: var(--color-nier-dark-muted);
+  background: color-mix(in srgb, var(--color-nier-gray) 45%, var(--color-nier-light));
+  cursor: not-allowed;
+}
 .nier-threshold-input::-webkit-outer-spin-button,
 .nier-threshold-input::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -1591,6 +2793,42 @@ h1, h2, h3 {
 }
 .nier-filter-error {
   color: var(--color-nier-orange-ink);
+}
+.nier-live-rules-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 0.85rem;
+  margin: 0 0 0.65rem;
+}
+.nier-live-rules-row .nier-live-rules {
+  margin: 0;
+  flex: 1 1 16rem;
+}
+.nier-live-rules {
+  grid-column: 1 / -1;
+  margin: 0 0 0.65rem;
+  padding: 0.35rem 0;
+  font-size: var(--text-label);
+  line-height: 1.45;
+  color: var(--color-nier-dark);
+}
+.nier-filter-bar .nier-live-rules {
+  margin-bottom: 0;
+}
+.nier-live-rules-line {
+  font-weight: 600;
+}
+.nier-live-rules-tag {
+  color: var(--color-nier-orange-ink);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: var(--text-caption);
+}
+.nier-live-rules-edit {
+  color: var(--color-nier-dark-muted);
 }
 .nier-filter-field {
   display: flex;
@@ -1726,110 +2964,159 @@ h1, h2, h3 {
   border-bottom: 1px dotted color-mix(in srgb, var(--color-nier-dark) 40%, transparent);
 }
 
-/* Landing */
+/* Landing — brand first, one supporting line, CTA group, skip */
 .nier-landing {
   justify-content: center;
-  padding-top: 0;
-  padding-bottom: 0;
+  /* Theater layout drops the shell's 1.5rem bottom pad, not the device insets */
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
   user-select: none;
 }
 .nier-landing-main {
   flex: 1;
   display: flex;
   align-items: flex-start;
-  max-width: 52rem;
+  max-width: 48rem;
   margin: 0 auto;
   width: 100%;
-  /* Clear air under the top ornament so the display title is never flush/cropped */
-  padding: clamp(3.5rem, 14vh, 8rem) 0 2.5rem;
+  /* Horizontal / bottom insets live on `.nier-shell` — don't double them here */
+  padding: clamp(3rem, 12vh, 7rem) var(--space-md) var(--space-xl);
   overflow: visible;
 }
-/* No clip-path entrance — reduced-motion can leave wipe-in stuck and block clicks. */
+/* View entrances: transform settle only (landing + report / compare / watchlist). */
+.nier-landing-panel,
+.nier-view-settle {
+  animation: nier-view-settle var(--duration-nier-ui) var(--ease-nier-out) both;
+}
 .nier-landing-panel {
   width: 100%;
   overflow: visible;
 }
+@keyframes nier-view-settle {
+  from { transform: translateY(0.35rem); }
+  to { transform: translateY(0); }
+}
 .nier-landing .nier-rail {
   overflow: visible;
+  padding-left: clamp(1.75rem, 6vw, 2.75rem);
 }
 .nier-landing-brand-wrap {
   overflow: visible;
-  padding-block: 0.25rem 0.1rem;
+  padding-block: 0.15rem 0;
+  /* Ghost offset + letterforms must stay inside the rail */
+  max-width: 100%;
 }
 .nier-landing-brand {
   display: block;
-  font-size: clamp(3.75rem, 12vw, 6.5rem);
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  /*
+    Keep PSE_ANALYSIS on one line. Root is 125% (1rem≈20px), so a 2rem floor
+    was ~40px and overflowed shell+rail at 320–375 CSS px.
+  */
+  font-size: clamp(1.35rem, 5.2vw + 0.55rem, 6rem);
+  line-height: 1.15;
+  letter-spacing: 0.03em;
   margin: 0;
   /* Explicit headroom — large display glyphs were clipping under tight line boxes */
-  padding: 0.35em 0.5em 0.25em 0.06em;
+  padding: 0.28em 0.45em 0.2em 0.04em;
   overflow: visible;
   text-shadow: none;
+  white-space: nowrap;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .nier-landing-brand.nier-title-ghost::before {
-  top: 0.35em;
-  right: 0.5em;
-  bottom: 0.25em;
-  left: 0.06em;
-  transform: translate(0.3rem, 0.3rem);
+  top: 0.28em;
+  right: 0.45em;
+  bottom: 0.2em;
+  left: 0.04em;
+  transform: translate(0.22rem, 0.22rem);
 }
 .nier-landing-sub {
   display: block;
-  margin-top: 0.45rem;
+  margin-top: var(--space-xs);
   color: var(--color-nier-orange-ink);
   font-weight: 500;
-  letter-spacing: 0.35rem;
-  font-size: 0.5em;
-  line-height: 1.2;
+  letter-spacing: clamp(0.12em, 0.35vw + 0.1em, 0.28em);
+  font-size: clamp(0.75rem, 0.32em + 0.35vw, 1.35rem);
+  line-height: 1.25;
   text-shadow: none;
+  white-space: nowrap;
+}
+/* Narrow phones: reclaim rail/main gutters so the brand stays hero-scale, not clipped */
+@media (max-width: 420px) {
+  .nier-landing-main {
+    padding-left: var(--space-sm);
+    padding-right: var(--space-sm);
+  }
+  .nier-landing .nier-rail {
+    padding-left: clamp(1rem, 3.5vw, 1.5rem);
+  }
+  .nier-landing-brand {
+    letter-spacing: 0.02em;
+  }
 }
 .nier-landing-copy {
-  margin-top: 1.5rem;
-  font-size: var(--text-label);
-  letter-spacing: 0.04em;
+  margin: var(--space-lg) 0 0;
+  font-size: var(--text-body);
+  letter-spacing: 0.03em;
   text-transform: none;
-  line-height: 1.55;
-  color: var(--color-nier-dark-muted);
-  max-width: 36rem;
+  line-height: 1.5;
+  color: var(--color-nier-dark);
+  max-width: 65ch;
   font-weight: 400;
   text-wrap: pretty;
 }
 .nier-landing-cta {
-  margin-top: 2rem;
+  margin-top: var(--space-xl);
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--space-sm);
 }
 .nier-landing-cta .nier-btn {
-  padding: 1rem 2.4rem;
+  padding: 1rem 2rem;
   font-size: var(--text-body);
+  min-height: 3rem;
 }
-.nier-landing-steps {
-  margin: 0.85rem 0 0;
-  max-width: 36rem;
-  font-size: var(--text-caption);
-  color: var(--color-nier-dark-muted);
-  line-height: 1.5;
+@media (max-width: 520px) {
+  .nier-landing-cta {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .nier-landing-cta .nier-btn {
+    width: 100%;
+    text-align: center;
+  }
 }
 .nier-landing-skip {
-  margin-top: 1rem;
-  display: inline-block;
+  margin-top: var(--space-md);
+  display: inline-flex;
+  align-items: center;
   background: none;
   border: none;
   padding: 0.35rem 0;
+  min-height: 2.75rem;
   font-family: var(--font-nier);
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   letter-spacing: 0.04em;
   color: var(--color-nier-dark-muted);
   text-decoration: underline;
   text-underline-offset: 0.2em;
   cursor: pointer;
+  text-wrap: pretty;
 }
-.nier-landing-skip:hover,
+.nier-landing-skip:hover {
+  color: var(--color-nier-orange-ink);
+}
 .nier-landing-skip:focus-visible {
-  color: var(--color-nier-orange);
-  outline: none;
+  color: var(--color-nier-orange-ink);
+  outline: 2px solid var(--color-nier-dark);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nier-landing-panel,
+  .nier-view-settle {
+    animation: none;
+  }
 }
 
 .nier-coach-stack {
@@ -1851,6 +3138,14 @@ h1, h2, h3 {
 .nier-coach-strip--watch {
   border-color: color-mix(in srgb, var(--color-nier-orange) 45%, var(--color-nier-dark));
 }
+.nier-coach-strip--inline {
+  padding: 0.45rem 0.75rem;
+  gap: 0.5rem 0.75rem;
+}
+.nier-coach-strip--inline .nier-coach-copy {
+  flex: 1 1 12rem;
+  font-size: var(--text-label);
+}
 .nier-coach-copy {
   margin: 0;
   flex: 1 1 16rem;
@@ -1865,6 +3160,42 @@ h1, h2, h3 {
 .nier-coach-actions .nier-btn {
   min-height: 2.75rem;
   min-width: 2.75rem;
+}
+
+.nier-table-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 12rem;
+  padding: var(--space-xl) var(--space-md);
+  background: var(--surface-nier-inner);
+}
+.nier-table-status-panel {
+  max-width: 28rem;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+.nier-table-status-msg {
+  margin: 0;
+  font-size: var(--text-body);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+  text-wrap: pretty;
+}
+.nier-table-status-hint {
+  margin: 0;
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  text-wrap: pretty;
+}
+.nier-table-status-panel .nier-btn {
+  min-height: 2.75rem;
 }
 
 .nier-empty-cell {
@@ -1895,9 +3226,43 @@ h1, h2, h3 {
   text-wrap: pretty;
 }
 
-@media (max-width: 640px) {
-  .compare-page {
-    padding: 0;
+/* Narrow compare chrome: stack topbar, equal tab row, readable ticker cards */
+@media (max-width: 767px) {
+  .compare-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .compare-topbar-lead {
+    justify-content: space-between;
+    width: 100%;
+  }
+  .compare-topbar-lead .nier-btn--compact {
+    min-height: 2.75rem;
+  }
+  .compare-panel-toggle {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    gap: 0.35rem;
+  }
+  .compare-panel-toggle .nier-btn {
+    width: 100%;
+    min-height: 2.75rem;
+    padding-left: 0.35rem;
+    padding-right: 0.35rem;
+    justify-content: center;
+    text-align: center;
+  }
+  .compare-tickers {
+    grid-template-columns: 1fr;
+  }
+  .compare-ticker-card {
+    padding-right: 2.75rem; /* room for × without overlapping ticker */
+  }
+}
+@media (min-width: 480px) and (max-width: 767px) {
+  .compare-tickers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1936,7 +3301,9 @@ h1, h2, h3 {
 .report-topbar {
   display: flex;
   justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
   margin-bottom: 8px;
   font-size: var(--text-dense);
   text-transform: uppercase;
@@ -1945,31 +3312,108 @@ h1, h2, h3 {
   padding-bottom: 8px;
 }
 
-.report-brand-row {
+.report-topbar-nav {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 0.65rem;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.report-topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+  min-width: 0;
+}
+
+.report-watch-btn.nier-watch-btn--labeled {
+  /* Compact chrome peer to Back — not sheet-foot full width */
+  flex: 0 0 auto;
+}
+
+/* Narrow: keep Back + Watch on first paint (sheet Open report used to restore list scroll) */
+@media (max-width: 767px) {
+  .report-topbar {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: var(--z-sticky);
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    margin-inline: -20px;
+    margin-bottom: 8px;
+    padding: 0.5rem 20px 0.5rem;
+    background: var(--color-nier-bg);
+    border-bottom: 2px solid var(--color-nier-dark);
+  }
+
+  .report-topbar-nav {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .report-topbar-meta {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+  }
+
+  .report-unit {
+    display: none;
+  }
+
+  .report-date {
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 375px) {
+  .report-topbar {
+    flex-wrap: wrap;
+  }
+
+  .report-topbar-nav {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .report-topbar-meta {
+    flex: 1 1 100%;
+    margin-inline-start: 0;
+    justify-content: flex-end;
+  }
 }
 
 .report-unit {
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  color: var(--color-nier-dark-muted);
+  font-weight: 500;
+  letter-spacing: var(--tracking-ui);
   text-transform: uppercase;
   font-size: var(--text-caption);
+  text-shadow: none;
 }
 
 .report-date {
-  font-weight: 600;
-  color: var(--color-nier-orange-ink);
+  color: var(--color-nier-dark-muted);
+  font-weight: 500;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-ui);
+  text-transform: uppercase;
 }
 
 
 .report-title-bar {
   display: grid;
   grid-template-columns: auto 1fr 220px;
+  gap: 1px;
   border: 2px solid var(--color-nier-dark);
   margin: 10px 0 6px;
-  background: var(--surface-nier-title);
+  /*
+    Dark gutters = hairline column/row dividers (not side-stripe accents).
+    Cells use opaque --surface-nier-title so ink shows only in the 1px gaps.
+  */
+  background: var(--color-nier-dark);
   box-shadow: var(--shadow-nier-lift-soft);
 }
 
@@ -1991,16 +3435,17 @@ h1, h2, h3 {
   text-overflow: ellipsis;
   text-shadow: 0.15rem 0.15rem 0 color-mix(in srgb, var(--color-nier-dark) 22%, transparent);
   text-wrap: balance;
+  background: var(--surface-nier-title);
 }
 
 .report-title-center {
-  border-left: 2px solid var(--color-nier-dark);
   padding: 8px 14px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 6px;
   min-width: 0;
+  background: var(--surface-nier-title);
 }
 
 .report-name-inline {
@@ -2067,11 +3512,11 @@ h1, h2, h3 {
 }
 
 .report-mcap {
-  border-left: 2px solid var(--color-nier-dark);
   padding: 8px 14px;
   display: flex;
   flex-direction: column;
   justify-content: center;
+  background: var(--surface-nier-title);
 }
 
 .report-mcap-label {
@@ -2136,12 +3581,38 @@ h1, h2, h3 {
   contain-intrinsic-size: auto 160px;
 }
 
+.report-chart-head,
+.compare-chart-head {
+  margin-bottom: 0.35rem;
+}
 .report-chart-title {
   font-size: var(--text-ui);
   font-weight: 600;
   margin-bottom: 2px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+.report-chart-unit {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-nier-dark-muted);
+  line-height: 1.35;
+}
+.report-chart-unit-value {
+  font-weight: 700;
+  color: var(--color-nier-dark);
+}
+.report-chart-scale-note {
+  margin: 0 0 0.75rem;
+  max-width: 52rem;
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  line-height: 1.45;
+  color: var(--color-nier-dark-muted);
 }
 
 .report-chart-empty {
@@ -2188,10 +3659,17 @@ h1, h2, h3 {
   text-align: left;
 }
 
-.report-table th {
+.report-table thead th,
+.report-table th[scope="col"] {
   background: var(--color-nier-dark);
   color: var(--color-nier-bg);
   font-weight: 700;
+}
+
+.report-table th[scope="row"] {
+  background: transparent;
+  color: inherit;
+  font-weight: 500;
 }
 
 .report-table td.num,
@@ -2508,35 +3986,18 @@ h1, h2, h3 {
   margin-bottom: 0.75rem;
 }
 
-.report-news--compact {
-  margin: 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-  box-shadow: none;
-}
-
-.report-news--compact .report-news-list {
-  max-height: 9rem;
-  overflow: auto;
-}
-
-.report-news--compact .report-news-link {
-  font-size: var(--text-dense);
-}
-
-.report-news--compact .report-news-status {
-  padding: 0.55rem 0.65rem;
-  font-size: var(--text-caption);
-}
-
 .report-news-note {
   margin: 0 0 0.65rem;
-  font-size: var(--text-caption);
+  font-size: var(--text-label);
   color: var(--color-nier-dark-muted);
+  text-wrap: pretty;
 }
 
 .report-news-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
   border: 1px dashed color-mix(in srgb, var(--color-nier-dark) 35%, transparent);
   padding: 0.85rem 1rem;
   font-size: var(--text-dense);
@@ -2546,6 +4007,8 @@ h1, h2, h3 {
 }
 
 .report-news-error-detail {
+  margin: 0;
+  flex: 1 1 14rem;
   text-transform: none;
   letter-spacing: 0.02em;
   color: var(--color-nier-dark);
@@ -2657,15 +4120,11 @@ h1, h2, h3 {
   .report-mcap {
     grid-column: 2;
     grid-row: 1;
-    border-left: 2px solid var(--color-nier-dark);
-    border-top: none;
   }
 
   .report-title-center {
     grid-column: 1 / -1;
     grid-row: 2;
-    border-left: none;
-    border-top: 2px solid var(--color-nier-dark);
   }
 }
 

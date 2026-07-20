@@ -9,19 +9,13 @@ import {
   YAxis,
 } from 'recharts';
 import { summarizeBalanceSheet } from '../lib/chartSummary';
+import { formatChartNumber, formatChartValue } from '../lib/chartUnits';
 import { CHART_SURFACE, CHART_TYPE, METRIC_COLORS } from '../lib/nierPalette';
 
-function formatLabel(v) {
-  if (v == null || Number.isNaN(v)) return '';
-  const abs = Math.abs(v);
-  if (abs >= 100) return v.toFixed(0);
-  if (abs >= 10) return v.toFixed(1);
-  return v.toFixed(2);
-}
-
-/** Grouped Assets / Liabilities / Equity (₱B) for BV identity: A − L ≈ E. */
+/** Grouped Assets / Liabilities / Equity (B PHP) for BV identity: A − L ≈ E. */
 export default function BalanceSheetChart({
   title = 'Balance Sheet — Assets, Liabilities, Equity',
+  unit = 'B PHP',
   data,
   height = 220,
 }) {
@@ -35,11 +29,21 @@ export default function BalanceSheetChart({
         || d.cash != null,
     );
   const { axis, grid, tooltipBg } = CHART_SURFACE;
-  const summary = summarizeBalanceSheet(title, data);
+  const summary = summarizeBalanceSheet(
+    unit ? `${title} (${unit})` : title,
+    data,
+  );
 
   return (
     <div className="report-chart-card report-chart-card--wide" role="img" aria-label={summary}>
-      <div className="report-chart-title" aria-hidden="true">{title}</div>
+      <div className="report-chart-head" aria-hidden="true">
+        <div className="report-chart-title">{title}</div>
+        {unit ? (
+          <div className="report-chart-unit">
+            Values in <span className="report-chart-unit-value">{unit}</span>
+          </div>
+        ) : null}
+      </div>
       {!hasData ? (
         <div className="report-chart-empty" aria-hidden="true">No data</div>
       ) : (
@@ -58,10 +62,13 @@ export default function BalanceSheetChart({
                 axisLine={false}
                 tickLine={false}
                 width={52}
-                tickFormatter={(v) => formatLabel(Number(v))}
+                tickFormatter={(v) => formatChartNumber(Number(v))}
               />
               <Tooltip
-                formatter={(value, name) => [formatLabel(Number(value)), name]}
+                formatter={(value, name) => [
+                  formatChartValue(Number(value), unit),
+                  name,
+                ]}
                 contentStyle={{
                   fontSize: CHART_TYPE.tooltip,
                   borderRadius: 0,
