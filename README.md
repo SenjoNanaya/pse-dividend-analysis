@@ -7,7 +7,6 @@ Python ETL from the Philippine Stock Exchange EDGE portal into SQLite, a Django 
 
 The scraper pulls EDGE HTML and ranked 17-A/AFS PDFs. It does not use Yahoo-style quote APIs for Philippine dividend history (those fail on tickers such as `LTG.PS`).
 
-Oral walkthrough notes: [`docs/INTERVIEW_TALK_TRACK.md`](docs/INTERVIEW_TALK_TRACK.md).
 
 ## Pipeline
 
@@ -255,67 +254,6 @@ DB_PATH=data/pse_analysis.db
 ```
 
 Unset / empty `VITE_API_BASE` means same-origin `/api` (Vite proxies to `:8000` in dev). For a remote API (Vercel + Render), set the absolute origin; see [`frontend/.env.example`](frontend/.env.example).
-
-## Cloudflare Tunnel (free, from your PC)
-
-Runs Django locally, serves the built SPA from the same origin, and publishes a temporary `https://*.trycloudflare.com` URL. No open inbound ports. Your machine must stay on; the URL changes every run. Quick tunnels cap at 200 in-flight requests.
-
-1. Install [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) and put it on PATH.
-2. Have a DB at `data/pse_analysis.db` (or pass `--seed-demo`).
-3. From the repo root:
-
-```bash
-python scripts/run_tunnel.py
-python scripts/run_tunnel.py --seed-demo
-python scripts/run_tunnel.py --skip-build
-```
-
-Open the printed Public URL. Ctrl+C stops Django and the tunnel.
-
-Manual equivalent after `cd frontend && npm run build`:
-
-```bash
-# allow the trycloudflare Host header (PowerShell: $env:DJANGO_ALLOWED_HOSTS="...")
-export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,.trycloudflare.com
-python manage.py runserver 127.0.0.1:8000
-cloudflared tunnel --url http://127.0.0.1:8000
-```
-
-For a stable hostname on your own domain, use a [named Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) pointed at `http://127.0.0.1:8000` instead of Quick Tunnel.
-
-## Deploy (Vercel UI + Render API)
-
-Split hosting: static SPA on Vercel, Django + SQLite on Render. The API has no auth; treat the public URL as a personal research endpoint.
-
-**Order:** Render first, then Vercel, then put the Vercel origin into Render `CORS_ALLOWED_ORIGINS` and redeploy the API.
-
-### Render (API)
-
-1. Connect the repo and apply [`render.yaml`](render.yaml) (Blueprint), or create a Python web service with the same build/start commands.
-2. Persistent disk mounts at `data/` (`DB_PATH=data/pse_analysis.db`). Disk needs a paid instance (Starter+). On an ephemeral filesystem, `scripts/ensure_sqlite_db.py` re-copies the demo DB each boot.
-3. Confirm env: `DJANGO_DEBUG=false`, generated `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS=.onrender.com` (or your custom host), `CORS_ALLOWED_ORIGINS` starting with `http://localhost:5173`.
-4. After the service is live, note `https://<service>.onrender.com`.
-
-First boot with an empty disk seeds [`fixtures/demo/pse_demo.db`](fixtures/demo/pse_demo.db). Warehouse models are unmanaged; do not expect `migrate` to build `companies` / `financials`.
-
-To ship a full scrape: run `main.py` locally, then replace `data/pse_analysis.db` on the Render disk (shell upload or SFTP). Do not run the EDGE scraper on the web request path.
-
-### Vercel (UI)
-
-1. Import the same repo; set **Root Directory** to `frontend`.
-2. Framework: Vite. Build: `npm run build`. Output: `dist`.
-3. Env: `VITE_API_BASE=https://<service>.onrender.com` (no trailing slash).
-4. Deploy. Then set Render `CORS_ALLOWED_ORIGINS` to `https://<your-app>.vercel.app,http://localhost:5173` and restart the API.
-
-[`frontend/vercel.json`](frontend/vercel.json) rewrites unknown paths to `index.html`.
-
-| Variable | Where | Role |
-|----------|--------|------|
-| `VITE_API_BASE` | Vercel (build-time) | API origin for `fetch` |
-| `DJANGO_SECRET_KEY` | Render | Required when `DJANGO_DEBUG=false` |
-| `DJANGO_ALLOWED_HOSTS` | Render | Host header allowlist |
-| `CORS_ALLOWED_ORIGINS` | Render | Comma-separated UI origins |
-| `DB_PATH` | Render | SQLite path on the disk |
 
 ## `data/companies.csv`
 
