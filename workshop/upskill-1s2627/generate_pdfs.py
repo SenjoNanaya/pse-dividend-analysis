@@ -18,14 +18,19 @@ class ProposalPDF(FPDF):
         self.set_text_color(90, 90, 90)
         self.cell(0, 8, f"Page {self.page_no()}/{{nb}}", align="C")
 
-    def kv(self, key: str, value: str) -> None:
+    def heading(self, text: str, level: int = 1) -> None:
         self.set_x(self.l_margin)
-        self.set_font("Helvetica", "B", 9)
+        self.ln(2)
+        if level == 1:
+            self.set_font("Helvetica", "B", 13)
+            self.set_text_color(15, 55, 95)
+            self.multi_cell(0, 7, text)
+        else:
+            self.set_font("Helvetica", "B", 11)
+            self.set_text_color(25, 70, 110)
+            self.multi_cell(0, 6, text)
         self.set_text_color(20, 20, 20)
-        label = f"{key}: "
-        self.cell(self.get_string_width(label) + 1, 5, label)
-        self.set_font("Helvetica", "", 9)
-        self.multi_cell(0, 5, value)
+        self.ln(1)
 
     def para(self, text: str, size: int = 10, style: str = "") -> None:
         self.set_x(self.l_margin)
@@ -40,19 +45,14 @@ class ProposalPDF(FPDF):
         self.set_text_color(20, 20, 20)
         self.multi_cell(0, 4.5, f"- {text}")
 
-    def heading(self, text: str, level: int = 1) -> None:
+    def kv(self, key: str, value: str) -> None:
         self.set_x(self.l_margin)
-        self.ln(2)
-        if level == 1:
-            self.set_font("Helvetica", "B", 13)
-            self.set_text_color(15, 55, 95)
-            self.multi_cell(0, 7, text)
-        else:
-            self.set_font("Helvetica", "B", 11)
-            self.set_text_color(25, 70, 110)
-            self.multi_cell(0, 6, text)
+        self.set_font("Helvetica", "B", 9)
         self.set_text_color(20, 20, 20)
-        self.ln(1)
+        label = f"{key}: "
+        self.cell(self.get_string_width(label) + 1, 5, label)
+        self.set_font("Helvetica", "", 9)
+        self.multi_cell(0, 5, value)
 
 
 def build_official_proposal(path: Path) -> None:
@@ -82,7 +82,7 @@ def build_official_proposal(path: Path) -> None:
         ("Event Title", "UPSkill"),
         (
             "Theme",
-            "From Filings to Insight: Hands-on Data Science with Real Market Data",
+            "Companies You Know, Data You Can Use: Beginner DS with Real PSE Names",
         ),
         ("Nature of Event", "Educational and Informative"),
         ("Date & Time", "September 17, 2026 | AM 9:30-12:35 | PM 2:30-6:00"),
@@ -94,59 +94,62 @@ def build_official_proposal(path: Path) -> None:
     pdf.heading("II. Event Team")
     for k, v in [
         ("Event Head", "Galvin M. Gonzales"),
+        ("Speaker (AM & PM)", "Galvin M. Gonzales"),
         ("EIC", "[TBD]"),
-        ("Program & Technical Committee", "[TBD]"),
+        ("Program & Technical Committee", "[TBD] - owns logistics / floater support"),
+        ("Hosts", "[TBD] - MC / transitions (not the speaker)"),
         ("Documentation & Communications", "[TBD]"),
     ]:
         pdf.kv(k, v)
 
     pdf.heading("III. Objectives")
     pdf.para(
-        "1. Encourage applicants to know more about data science - what it is, "
-        "what problems it solves, and how it shows up in real Philippine datasets."
+        "1. Encourage absolute beginners to explore data science using Philippine "
+        "companies they already recognize (SM, Jollibee, BDO, Globe, Meralco, ...)."
     )
     pdf.para(
-        "2. Give applicants a glimpse of Guild workshops using a pipeline-shaped "
-        "activity (collect -> clean -> analyze -> communicate)."
+        "2. Preview Guild workshops via a simple pipeline: clean a table -> ask a "
+        "question -> filter an answer (no prior coding required)."
     )
     pdf.para(
-        "3. Provide hands-on experience: wrangling tabular data and building a "
-        "small stock screen from prepared PSE-style financial metrics."
+        "3. Hands-on with an offline real-world snapshot: spreadsheet hygiene (AM) "
+        "and a guided Google Colab mini-screen (PM)."
     )
 
-    pdf.heading("IV. Work Distribution / Committee Task")
+    pdf.heading("IV. Dual-role / Committee Task")
+    pdf.para(
+        "Because the Event Head is also the speaker, PTC + Hosts fully own logistics "
+        "and MCing. During the event the speaker only teaches and answers content Qs.",
+        style="B",
+    )
     pdf.heading("Program & Technical Committee", level=2)
     pdf.para(
-        "Pre: tech, back-up tech, hosts, venue/Zoom, script, evaluation & attendance forms. "
-        "During: tech support, hosting, attendance, evaluation collection. "
-        "Post: tech tear-down / venue clean-up."
+        "Pre: tech, hosts, venue/Zoom, script, forms, Colab access check, floater. "
+        "During: tech, attendance, catch raised hands/chat. Post: tear-down."
     )
-    pdf.heading("Documentation & Communications Committee", level=2)
+    pdf.heading("Documentation & Communications", level=2)
     pdf.para(
-        "Pre: speaker certificates & credentials, PPT packaging, optional onsite food/holders. "
-        "During: evaluation forms, speaker food/tokens. "
-        "Post: financial report, docs archive, certificate follow-through."
+        "Pre: speaker credentials, PPT packaging, certificates. "
+        "During: evaluation / documentation. Post: financial report, archive."
     )
 
     pdf.add_page()
     pdf.heading("V. Program Preparation Timeline")
     timeline = [
-        ("Finish Proposal", "Sep 7, 2026", "Event Head", "In progress"),
-        ("Present Proposal to Exec", "Sep 8, 2026", "Event Head", "Not started"),
-        ("Speakers Meeting", "Sep 10, 2026", "Event Head, EIC", "Not started"),
-        ("Speaker credentials sheet", "Sep 11, 2026", "DCC", "Not started"),
-        ("Speakers Draft Presentation", "Sep 10, 2026", "Speakers", "Not started"),
-        ("Review Presentation", "Sep 11, 2026", "PTC", "Not started"),
-        ("Practice with PTC", "Sep 13, 2026", "Speaker, PTC", "Not started"),
-        ("Powerpoint deadline", "Sep 13, 2026", "DCC", "Not started"),
-        ("Script deadline", "Sep 13, 2026", "PTC", "Not started"),
-        ("Certificates for Speakers", "Sep 13, 2026", "DCC", "Not started"),
-        ("Attendance Forms", "Sep 14, 2026", "PTC", "Not started"),
-        ("Evaluation Forms", "Sep 15, 2026", "DCC", "Not started"),
-        ("Dry Run (exec as applicants)", "Sep 16, 2026", "EIC/Speaker/Head/PTC", "Not started"),
+        ("Finish Proposal", "Sep 7", "Head/Speaker", "In progress"),
+        ("Present to Exec", "Sep 8", "Event Head", "Not started"),
+        ("Hosts+PTC dual-role sync", "Sep 9", "Head, EIC, PTC", "Not started"),
+        ("Lock beginner PSE dataset", "Sep 10", "Speaker", "Not started"),
+        ("Speaker credentials sheet", "Sep 11", "DCC", "Not started"),
+        ("Draft AM+PM slides", "Sep 10-12", "Speaker", "Not started"),
+        ("Beginner clarity review", "Sep 12", "PTC / EIC", "Not started"),
+        ("Practice with PTC", "Sep 13", "Speaker, PTC", "Not started"),
+        ("PPT + script deadline", "Sep 13", "DCC / PTC", "Not started"),
+        ("Publish Sheet + Colab links", "Sep 15", "DCC, Speaker", "Not started"),
+        ("Dry run (exec as applicants)", "Sep 16", "EIC, Speaker, Hosts, PTC", "Not started"),
     ]
     headers = ("Activity", "Date", "In-Charge", "Status")
-    widths = (68, 30, 58, 24)
+    widths = (68, 28, 52, 32)
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(230, 238, 246)
     for h, w in zip(headers, widths):
@@ -159,53 +162,46 @@ def build_official_proposal(path: Path) -> None:
         pdf.ln()
     pdf.set_x(pdf.l_margin)
     pdf.ln(2)
-    pdf.para(
-        "Note: Single-day AM+PM format gives breadth (foundations) then depth (Python). "
-        "Dry run is the day before the event."
-    )
 
     pdf.heading("VI. Program Flow")
     pdf.para(
-        "Topics: [1] AM Spreadsheet Foundations; [2] PM Python Mini Stock Screen. "
-        "Date: Sep 17, 2026. Mode: onsite preferred with Zoom backup."
+        "Speaker: Galvin M. Gonzales (both sessions). "
+        "AM = Spreadsheet foundations with familiar PSE names. "
+        "PM = First Python screen in Google Colab (no local install)."
     )
 
-    pdf.heading("AM Workshop - Spreadsheet Foundations", level=2)
+    pdf.heading("AM - Spreadsheet Foundations", level=2)
     for line in [
-        "9:30-9:45 Ingress / PTC assembly",
-        "9:45-10:00 Assembly of Applicants (EIC, Head)",
-        "10:00-10:10 Hosts introduction & workshop purpose",
-        "10:10-10:15 Opening Remarks (EIC)",
-        "10:15-10:20 Introduce AM speaker",
-        "10:20-10:30 Intro to Data Science & pipeline story",
-        "10:30-11:20 Spreadsheet foundations proper",
-        "11:20-11:30 Q&A",
-        "11:30-12:20 Guided activity (clean extract -> chart)",
-        "12:20-12:30 Certificate for speaker",
-        "12:30-12:35 Close AM / PM tool-install reminder",
+        "9:30-10:00 Ingress + applicant assembly",
+        "10:00-10:15 Hosts + Opening Remarks (EIC)",
+        "10:15-10:20 Introduce speaker",
+        "10:20-10:35 Soft landing: DS intro + vocabulary + why these companies",
+        "10:35-11:15 Follow-along Sheets skills",
+        "11:15-11:25 Q&A",
+        "11:25-12:15 Guided clean -> chart -> one-sentence insight",
+        "12:15-12:35 Certificate moment + Colab reminder",
     ]:
         pdf.bullet(line)
 
-    pdf.heading("PM Workshop - Python Mini Stock Screen", level=2)
+    pdf.heading("PM - Colab Mini Screen", level=2)
     for line in [
-        "2:30-2:45 Ingress / PTC assembly",
-        "2:45-3:00 Assembly of Applicants",
-        "3:00-3:10 Hosts welcome-back",
-        "3:10-3:15 Introduce PM speaker",
-        "3:15-3:30 Jupyter + Pandas discussion",
-        "3:30-4:20 Hands-on load/clean/screen",
+        "2:30-3:00 Ingress + Colab open-check",
+        "3:00-3:15 Hosts welcome-back + speaker re-intro",
+        "3:15-3:35 Gentle Colab/Pandas intro",
+        "3:35-4:20 Follow-along filter by yield + completeness",
         "4:20-4:30 Q&A",
-        "4:30-4:50 Applicant threshold activity",
-        "4:50-5:30 Short share-outs",
-        "5:30-5:40 Q&A",
-        "5:40-5:45 Certificate for speaker",
-        "5:45-5:55 Closing Remarks (Head)",
-        "5:55-6:00 Hosts closing",
+        "4:30-5:00 Applicant rule activity (pairs OK)",
+        "5:00-5:30 Optional 30-60s share-outs",
+        "5:30-5:40 Guild teaser (pipeline glimpse only)",
+        "5:40-6:00 Closing + evaluation",
     ]:
         pdf.bullet(line)
 
-    pdf.ln(4)
-    pdf.para("Created By: Galvin M. Gonzales, Event Head - September 6, 2026", style="B")
+    pdf.ln(3)
+    pdf.para(
+        "Created By: Galvin M. Gonzales, Event Head & Speaker - September 6, 2026",
+        style="B",
+    )
     pdf.para("Noted By: ________________________  Executive-in-Charge  Date: ________")
     pdf.para("Approved By: ________________________  Head Chairperson  Date: ________")
 
@@ -222,11 +218,11 @@ def build_applicants_packet(path: Path) -> None:
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(15, 55, 95)
     pdf.cell(0, 7, "UPSkill Applicants Workshop", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.cell(
         0,
         6,
-        "1st Sem AY 2026-2027 | From Filings to Insight",
+        "1S2627 | Companies You Know, Data You Can Use",
         align="C",
         new_x="LMARGIN",
         new_y="NEXT",
@@ -235,87 +231,79 @@ def build_applicants_packet(path: Path) -> None:
 
     pdf.heading("Overview")
     for k, v in [
-        ("Workshop Title", "UPSkill 1S2627 - From Filings to Insight"),
+        ("Workshop Title", "UPSkill 1S2627 - Companies You Know, Data You Can Use"),
         ("Date & Time", "Sep 17, 2026 | AM 9:30-12:35 | PM 2:30-6:00"),
         ("Venue", "[TBD onsite] / Zoom backup"),
+        ("Speaker", "Galvin M. Gonzales (Event Head; AM & PM)"),
         ("Org", "UPLB Data Science Guild"),
     ]:
         pdf.kv(k, v)
 
     pdf.heading("Objective", level=2)
     pdf.para(
-        "Give participants an initial look into Data Science using prepared Philippine "
-        "company financial metrics as the running example, while setting a baseline for "
-        "future Guild workshops. Tangible outputs: a cleaned spreadsheet table (AM) and "
-        "a personal mini stock screen notebook (PM)."
+        "Absolute-beginner first look at Data Science using real Philippine companies "
+        "applicants already know. Outputs: cleaned familiar-ticker sheet (AM) and a "
+        "simple Colab shortlist (PM)."
     )
 
     pdf.heading("Rationale", level=2)
     pdf.para(
-        "Applicants may be new to DS or come from adjacent backgrounds; some will want "
-        "more technical depth. Keep coverage broad, spark interest, and deliver hands-on "
-        "takeaways. Theme is inspired by turning public market disclosures into structured "
-        "tables - without live scraping. Applicants use curated demo CSVs/sheets only."
+        "Beginner-first room. Speaker can connect the session to a real Guild-adjacent "
+        "project in plain language. Familiar tickers (SM, Jollibee, BDO, Globe, Meralco...) "
+        "create relevance; offline curated snapshot keeps setup safe. Colab removes local "
+        "install friction. Educational use only - not investment advice."
     )
 
     pdf.heading("Program Flow")
     pdf.para(
-        "[1] Spreadsheet cleaning & exploration (AM)  |  [2] Python/Pandas mini stock screen (PM)."
+        "[1] Spreadsheet foundations with familiar PSE names (AM) | "
+        "[2] First Python screen in Google Colab (PM)."
     )
     pdf.para(
-        "Ingress ~10-15 mins. Incentives for attending both sessions. Install Python tools "
-        "before PM. Questions welcome anytime. If applicants present, reserve 15-20 mins."
+        "Pairs allowed. PTC floater catches blockers. Share-outs optional (30-60s). "
+        "Open Colab before PM starts."
     )
 
     pdf.add_page()
     pdf.heading("Topic Outline - Session 1 (Sheets)")
     pdf.para(
-        "Progression: messy financial extract -> organized, chart-ready sheet.",
+        "Progression: messy familiar-company table -> readable sheet + one careful insight.",
         style="B",
     )
     pdf.para(
-        "Topics: interface, shortcuts, sort/filter, formatting, essential formulas, charts, "
-        "light data-quality habits (blanks, duplicates, scale notes)."
+        "Core topics: interface, sort/filter, formatting, IF/IFERROR, one chart, "
+        "missing-data hygiene. Plain metrics only (price, dividend yield %, completeness)."
     )
-    pdf.para(
-        "Guide Qs: formula showing as text; fill-down; #VALUE!; split ticker/name; flag missing "
-        "ratios; chart top 10 by metric."
-    )
-    pdf.para("Output: cleaned sheet + 2-3 bullet insights.")
+    pdf.para("Output: cleaned tab + 1 chart + 1-2 bullet insights.")
 
-    pdf.heading("Topic Outline - Session 2 (Python)")
+    pdf.heading("Topic Outline - Session 2 (Colab)")
     pdf.para(
-        "Progression: prepared company-metrics CSV + blank notebook -> filtered shortlist with plot.",
+        "Progression: linked CSV in Colab -> shortlist you can explain in one minute.",
         style="B",
     )
     pdf.para(
-        "Topics: notebook workflow, DataFrames, CSV import, missingness, filters, derived metrics, "
-        "Matplotlib, communicating thresholds and caveats."
+        "Core topics: run cells, head/shape, count missing, boolean filters, sort, "
+        "simple bar chart. No ROIC/ML on the main path. Completed notebook fallback provided."
     )
-    pdf.para(
-        "Guide Qs: count nulls; run a cell; why DataFrames; multi-condition filters; absurd ratios; export CSV."
-    )
-    pdf.para(
-        "Pedagogy: offline demo data only; interpretable metrics; educational disclaimer "
-        "(not investment advice); ML optional/out of scope for applicants workshop."
-    )
-    pdf.para("Output: screening notebook + 5-10 name shortlist with rationale.")
+    pdf.para("Output: shortlist + rule used + one data caveat.")
 
     pdf.heading("Resources")
-    pdf.para("AM working file: [TBD Google Sheet / Excel starter]")
-    pdf.para("PM pre-install: Python 3.10+, VS Code or Jupyter, demo CSV")
-    pdf.para("pip install matplotlib numpy pandas")
-    pdf.para(
-        "Demo CSV path in repo: workshop/upskill-1s2627/resources/demo_company_metrics.csv"
-    )
+    pdf.para("AM Sheet: [TBD publish link] + answer-key tab")
+    pdf.para("PM: Google Colab (browser only) + demo_company_metrics.csv")
+    pdf.para("CSV path: workshop/upskill-1s2627/resources/demo_company_metrics.csv")
+    pdf.para("See BEGINNER_SPEAKER_NOTES.md for dual-role and pedagogy guardrails.")
 
-    pdf.heading("Speakers Bio")
-    pdf.para("AM Speaker: [TBD after Sep 10 Speakers Meeting]")
-    pdf.para("PM Speaker: [TBD after Sep 10 Speakers Meeting]")
+    pdf.heading("Speaker Bio")
+    pdf.para(
+        "Galvin M. Gonzales - Event Head and AM/PM speaker. Teaching thread: "
+        "beginner-accessible workflows on real Philippine listed-company snapshots - "
+        "clean, question, and filter without assuming prior coding experience. "
+        "Hosts/PTC handle logistics and MCing."
+    )
 
     pdf.ln(3)
     pdf.para(
-        "Prepared for UPSkill 1S2627 | Event Head: Galvin M. Gonzales | Draft: Sep 6, 2026",
+        "Prepared for UPSkill 1S2627 | Event Head & Speaker: Galvin M. Gonzales | Updated: Sep 6, 2026",
         style="I",
         size=9,
     )

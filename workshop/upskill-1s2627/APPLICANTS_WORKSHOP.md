@@ -6,41 +6,53 @@
 
 | Field | Details |
 |-------|---------|
-| **Workshop Title** | UPSkill 1S2627 — From Filings to Insight |
+| **Workshop Title** | UPSkill 1S2627 — Companies You Know, Data You Can Use |
 | **Date & Time** | September 17, 2026 · AM 9:30–12:35 · PM 2:30–6:00 |
 | **Venue** | 1st Option: [TBD – UPLB onsite] · 2nd Option: Zoom |
 | **Org** | UPLB Data Science Guild |
+| **Speaker** | Galvin M. Gonzales (Event Head; AM & PM) |
 
 ### Applicants Demographic
 
-> **Fill once the applicant roster is locked.** Template based on the prior Applicants Workshop format.
+> **Fill once the applicant roster is locked.**
 
-**Applicants Profile (placeholder)**  
-Summarize degree programs (counts + %), university batches (counts + %), and any notable mix (e.g., CS-heavy vs adjacent fields). Call out whether the pool is mostly first-exposure DS applicants or includes more mature technical applicants.
+**Design assumption until then:** treat the room as **beginner-first** (many first-exposure; mixed programs). Stretch material is optional, never required to “keep up.”
 
 ### Objective
 
-To give participants an initial look into Data Science: its breadth, fundamental skills, and practical applications — using **prepared Philippine company financial metrics** as the running example — while setting a baseline for future Guild workshops. The goal is to build appreciation and engage applicants through a **tangible output**: a cleaned spreadsheet table in the morning, and a personal mini stock screen in the afternoon.
+To give absolute beginners a friendly first look at Data Science using **real Philippine companies they already know**, while setting a baseline for future Guild workshops. Tangible outputs: a cleaned spreadsheet of familiar tickers (AM), and a simple Colab filter/shortlist (PM).
 
 ### Rationale
 
-We assume applicants are possibly new to actual exposure with DS; some coming from adjacent backgrounds, others younger batches in technical programs. There may also be mature applicants expecting technical insight. This workshop therefore stays **broad rather than deep**, focuses on sparking interest, and delivers hands-on takeaways that match a mixed experience range.
+Applicants may be new to DS, come from adjacent majors, or simply have never touched Python. Mature applicants may want technical flavor — we give that as an optional glimpse, not as the main path.
 
-The theme is inspired by a real Guild-adjacent data problem: turning public market disclosures into structured tables you can actually reason over (clean labels, missing values, simple ratios, and a screen). We will **not** scrape live websites during the workshop. Applicants work on **curated demo CSVs / sheets** so setup friction stays low and the learning stays on methods, not infrastructure.
+**Why this speaker:** Galvin can connect the workshop to a real project (PSE disclosures → structured tables → screening ideas) in plain language. Applicants see that Guild work is about useful questions on real data, not only toy examples.
 
-Coverage intentionally mirrors the DS pipeline Guild members use later:
+**Why this data:** Familiar names (SM, Jollibee, BDO, Globe, Meralco, etc.) make tables feel relevant immediately. We still use an **offline curated snapshot** (Sheet + CSV / Colab) so the session stays beginner-safe: no live scraping, no account hurdles beyond Colab, no advanced valuation theory.
 
-1. **Clean & explore** messy tabular data (AM — spreadsheets)  
-2. **Analyze & decide** with Python/Pandas on the same domain (PM — mini screen)
+**Beginner contract:**
+
+1. No prior coding required.  
+2. Google Colab for PM (browser only).  
+3. Plain metrics first: price, dividend yield (%), missing/complete flag.  
+4. Pair up allowed; completed fallback tabs provided.  
+5. Educational use only — not investment advice.
+
+Coverage mirrors a tiny DS pipeline:
+
+1. **Clean & explore** (AM — spreadsheets)  
+2. **Ask & filter** (PM — Colab / Pandas)
 
 ---
 
 ## Layout / How to read this packet
 
-1. Program Flow — schedule, norms, and what to bring  
-2. Topic Outline — progression, guide questions, topics, workflow per session  
-3. Speakers Bio — [to be filled after speakers meeting]  
-4. Resources — files, installs, and pre-work  
+1. Program Flow  
+2. Topic Outline  
+3. Speaker Bio  
+4. Resources  
+
+Also see `BEGINNER_SPEAKER_NOTES.md` for dual-role and pedagogy guardrails.
 
 ---
 
@@ -48,27 +60,23 @@ Coverage intentionally mirrors the DS pipeline Guild members use later:
 
 ### Topics
 
-1. **Data Cleaning and Exploration in Spreadsheets** (Google Sheets or Excel)  
-2. **Python, Pandas, and a Mini Stock Screen**
+1. **Spreadsheet Foundations with Companies You Know**  
+2. **Your First Python Screen in Google Colab**
 
 | | Session [1] | Session [2] |
 |---|-------------|-------------|
 | **Date** | Sep 17, 2026 | Sep 17, 2026 |
 | **Time** | 9:30 AM – 12:35 PM | 2:30 PM – 6:00 PM |
 | **Venue** | [TBD] / Zoom backup | [TBD] / Zoom backup |
+| **Speaker** | Galvin M. Gonzales | Galvin M. Gonzales |
 
 ### Program Outline
 
-- Ingress is ~10–15 mins so we can start and end on time.  
-- Expect makeup / asynchronous tasks if you miss a session; incentives for applicants present in **both**.  
-- Aim to attend at least one session for the process; if your schedule allows both, take full advantage.  
-
-**Please anticipate the following:**
-
-1. Workshop proper includes presentation, activity, and Q&As. Questions can be raised at any point; resident members or speakers can address them.  
-   - **Speaker note:** If applicants will present, reserve ~15–20 mins leeway inside the allotted block.  
-2. Midday gap is lunch; PM session pause can double as a short snack break. Applicants, please bring water (and snacks if staying onsite).  
-3. **Reminders:** Install tools and open resource links **before** the PM session. Technical-check windows exist so every applicant’s environment is ready and blockers are fixed early.
+- Ingress ~10–15 mins.  
+- Incentives for attending **both**; makeup task if you miss one.  
+- Questions anytime; PTC floater helps stuck participants so the speaker can keep the main thread.  
+- **PM:** open the Colab link before the session starts (Google account). Local Python install is optional stretch only.  
+- Bring water / snacks as needed.  
 
 ---
 
@@ -76,118 +84,114 @@ Coverage intentionally mirrors the DS pipeline Guild members use later:
 
 ### What to expect!
 
-\*also subject to speakers’ preference
+\*paced for beginners; stretch notes marked optional
 
 ---
 
-### Session [1] — SheetSkills: From Messy Extract to Readable Table
+### Session [1] — SheetSkills: Companies You Already Recognize
 
-**Working metaphor:** You received a “disclosure dump” — uneven headers, blank cells, mixed number formats. By the end, you have a sorted, filtered, chart-ready sheet.
+**Working metaphor:** A slightly messy table of PH companies you know from malls, banks, telcos, and food — your job is to make it readable and find one honest insight.
 
 #### Progression
 
-1. **Start:** A blank-ish worksheet and an unorganized set of company/financial rows  
-2. **End:** A well-organized, sorted, and formatted worksheet with at least one chart and a short written observation
+1. **Start:** Uneven headers, blank yields, mixed formats  
+2. **End:** Sorted/filtered sheet + one chart + one sentence (“Among complete rows, …”)
 
 #### Guide Questions
 
-1. Why is my formula showing on the cell instead of the result?  
-2. How do I copy a formula down hundreds of rows without dragging forever?  
-3. What does `#VALUE!` / `#DIV/0!` mean and how do I fix it?  
-4. How do I split a ticker + company name cell into two columns?  
-5. How do I flag rows with missing ROIC / yield / debt figures?  
-6. How do I chart the top 10 names by a chosen metric?
+1. Why is my formula showing as text?  
+2. How do I fill a formula down without dragging forever?  
+3. What does a blank dividend yield mean for my chart?  
+4. How do I keep only rows marked complete?  
+5. How do I chart yield for companies I actually know?  
+6. When should a “very high yield” make me suspicious?
 
-#### Topics
+#### Topics (beginner core)
 
-1. Spreadsheet interface and data entry  
-2. Essential shortcut keys  
-3. Sorting and filtering  
-4. Formatting for readability  
-5. Essential formulas (`IF`, `IFERROR`, `VLOOKUP`/`XLOOKUP` or `INDEX`/`MATCH`, basic arithmetic)  
-6. Charts and simple dashboards  
-7. Light data-quality habits (blanks, duplicates, scale notes like “in thousands”)
+1. Spreadsheet interface & freeze panes  
+2. Sort & filter  
+3. Basic formatting (percents, readable headers)  
+4. Simple formulas (`IF`, `IFERROR`, basic arithmetic)  
+5. One chart  
+6. Missing-data hygiene  
+
+**Optional stretch:** `XLOOKUP` / split text to columns.
 
 #### Workflow
 
-1. **Introduction to Sheets and interface mapping** — tabs, ranges, freeze panes  
-2. **Essential shortcuts** — reduce mouse overreliance  
-3. **Sorting and filtering** — isolate a sector or incomplete rows  
-4. **Formatting** — consistent decimals, percent columns, header emphasis  
-5. **Operators and formulas** — compute a simple yield or margin column from provided fields  
-6. **Visual output** — bar/line chart of a filtered set  
-7. **Interactive application** — short graded-style problem (clean → summarize → one insight)
+1. Meet the familiar tickers (SM, JFC, BDO, GLO, MER, …)  
+2. Clean labels & formats  
+3. Filter to `data_complete = yes`  
+4. Chart a small subset  
+5. Write one careful insight (include a caveat)
 
 #### Tangible output
 
-A cleaned sheet (or tab) plus 2–3 bullet insights an applicant could explain to a non-technical friend.
+Cleaned sheet tab + 1 chart + 1–2 bullet insights in plain Filipino or English.
 
 ---
 
-### Session [2] — Python Data Camp: Build Your First Mini Stock Screen
+### Session [2] — Colab Camp: Filter a Shortlist (No Install)
 
-**Working metaphor:** Same domain as the morning, now in code. You start from a prepared CSV of company snapshots (demo metrics in the spirit of a PSE screening warehouse: yield, ROIC/capital return, debt-to-equity, incompleteness flags). You end with a notebook that filters a shortlist.
+**Working metaphor:** Same companies, now in a notebook. You learn to run cells, count missing values, and apply a rule like “complete rows with yield above X.”
 
 #### Progression
 
-1. **Start:** A CSV and a blank Jupyter notebook (or VS Code notebook)  
-2. **End:** A notebook that imports data, profiles missingness, computes or refines a metric column, filters a screen, and plots a simple comparison
+1. **Start:** Colab notebook + CSV already linked  
+2. **End:** A shortlist table you can explain in one minute
 
 #### Guide Questions
 
-1. How do I find and count missing / null values in my dataset?  
-2. How do you run a cell in a Jupyter notebook?  
-3. Why use a DataFrame instead of nested lists for tabular work?  
-4. How do you filter rows by multiple conditions (e.g., yield above X and debt below Y)?  
-5. What should you do when a ratio looks absurd (data-quality instinct)?  
-6. How do you export your shortlist back to CSV?
+1. How do I run a cell?  
+2. How do I see the first rows of a table?  
+3. How do I count missing yields?  
+4. How do I keep rows that match my rule?  
+5. How do I sort the shortlist?  
+6. What disclaimer should I remember before “ranking” companies?
 
-#### Topics
+#### Topics (beginner core)
 
-1. Jupyter / notebook workflow for analysis  
-2. Pandas Series and DataFrames  
-3. Importing CSV data  
-4. Profiling and handling missing values  
-5. Filtering and subsetting  
-6. Simple derived metrics (illustrative only — e.g., a proxy return or screen score)  
-7. Basic visualization with Matplotlib  
-8. Communicating a screen: thresholds, caveats, and “why these names”
+1. Colab tour (runtime, cells, markdown)  
+2. `read_csv` / `.head()` / `.shape`  
+3. Missing values (`.isna().sum()`)  
+4. Boolean filters  
+5. Sort + simple bar chart  
+6. Export or screenshot your shortlist  
+
+**Optional stretch:** local VS Code setup; compare two tickers; one-slide glimpse of a fuller PSE → database pipeline.
 
 #### Workflow
 
-1. **Environment check** — Python, packages, open the starter notebook  
-2. **Load the demo company table** — `read_csv`, `.head()`, `.info()`, `.describe()`  
-3. **Data quality pass** — count nulls; drop or flag incomplete rows (mirrors real `info_incomplete` thinking, without live scraping)  
-4. **Derived columns** — one teaching metric applicants can explain  
-5. **Build a screen** — applicant-chosen thresholds  
-6. **Visualize** — bar chart of screened tickers on one metric  
-7. **Share-out** — 1–2 minute explanation of screen logic and caveats  
-8. **Optional stretch** — compare two tickers side-by-side from the same table
+1. Open Colab · run setup cell  
+2. Load familiar-ticker table  
+3. Missingness check  
+4. Apply a simple screen (speaker-led defaults first)  
+5. Customize one threshold with a partner  
+6. Optional 30–60s share-out  
 
 #### Tangible output
 
-A personal screening notebook + a 5–10 name shortlist with written rationale and at least one data-quality caveat.
+Shortlist of recognizable companies + the rule you used + one data caveat.
 
-#### Pedagogical guardrails (for speakers)
+#### Pedagogical guardrails
 
-- Use **offline demo data** only (no EDGE/live scraping in-session).  
-- Prefer **interpretable** metrics over black-box models.  
-- Call out that market research is educational — not investment advice (align with project disclaimer culture).  
-- Keep ML optional/out-of-scope for this applicants workshop; point to future Guild workshops for modeling depth.
+- Offline curated snapshot only.  
+- No ROIC / ML in the main path.  
+- Educational disclaimer on slide 1 and notebook top.  
+- Completed notebook copy available if someone’s laptop fails.  
+- Speaker ≠ MC; hosts handle transitions.
 
 ---
 
-## Speakers Bio
+## Speaker Bio
 
-> Complete after Speakers Meeting (target Sep 10, 2026).
+### Galvin M. Gonzales — AM & PM Speaker / Event Head
 
-### AM Speaker — [Name TBD]
+Galvin M. Gonzales is the Event Head for UPSkill 1S2627 and the workshop speaker for both sessions. His teaching thread is grounded in building beginner-accessible workflows on **real Philippine listed-company data**: how messy public tables become something you can clean, question, and filter — without assuming prior coding experience.
 
-[Short bio: program, DS experience, prior workshop/teaching, relevant projects.]
+On the day, logistics and MCing are handled by Hosts and the Program & Technical Committee so he can stay focused on instruction and Q&A.
 
-### PM Speaker — [Name TBD]
-
-[Short bio: program, Python/Pandas experience, relevant analytics or tooling work.]
+> DCC may expand this bio with program, batch, and org roles before publication.
 
 ---
 
@@ -195,36 +199,35 @@ A personal screening notebook + a 5–10 name shortlist with written rationale a
 
 ### [1] Spreadsheet session
 
-- Working file: `[TBD — publish Google Sheet / Excel starter, e.g. tinyurl]`  
-- Suggested columns for the messy starter: `ticker`, `company_name`, `sector`, `last_price`, `div_yield`, `roic_or_capital_return`, `debt_to_equity`, `notes` (with intentional blanks / formatting traps)
+- Working file: `[TBD — publish Google Sheet starter]`  
+- Starter columns match `resources/demo_company_metrics.csv` (familiar PSE names)  
+- Include a second tab: **Answer key / completed example**
 
-### [2] Python mini stock screen
+### [2] Colab mini screen
 
-**Pre-install (before PM):**
+**Pre-work (5 minutes):**
 
-1. Python 3.10+  
-2. VS Code **or** Jupyter Lab / Notebook  
-3. Demo dataset: `[TBD — attach CSV under workshop resources]`  
+1. Google account  
+2. Open the published Colab link (target send date: Sep 15)  
+3. Run the first cell once to confirm it works  
 
-```bash
-pip install matplotlib numpy pandas
+```text
+Packages used in Colab: pandas, matplotlib
+(No local pip required for the main path.)
 ```
 
-**Starter notebook sections (suggested):**
+**Dataset:** `workshop/upskill-1s2627/resources/demo_company_metrics.csv`  
+Familiar tickers with simplified fields: `familiar_as`, `last_price`, `div_yield_pct`, `debt_to_equity`, `data_complete`, `notes`.
 
-1. Setup & imports  
-2. Load CSV  
-3. Missingness report  
-4. Clean / flag incomplete rows  
-5. Define screen thresholds  
-6. Filter + sort  
-7. Plot  
-8. Export shortlist  
+**Notebook sections:**
 
-**Optional stretch resources (for curious applicants; not required):**
-
-- High-level story of a PSE EDGE → SQLite → screening UI pipeline (architecture diagram only)  
-- Difference between industrial ROIC and bank capital-return framing (1–2 slides max)
+1. Welcome + disclaimer  
+2. Load data  
+3. Peek + missingness  
+4. Speaker default filter  
+5. Your turn  
+6. Chart  
+7. What we’d learn next in the Guild (optional)
 
 ---
 
@@ -232,13 +235,13 @@ pip install matplotlib numpy pandas
 
 | Applicants Workshop (this event) | Later Guild workshops (glimpse) |
 |----------------------------------|----------------------------------|
-| Spreadsheet hygiene & charts | Deeper wrangling, SQL, dashboards |
-| Pandas filters & simple screens | Feature work, modeling, ML tracks |
-| Offline curated tables | Full ETL, APIs, production-minded tooling |
-| Explainable shortlists | Richer evaluation, storytelling, deployment |
+| Familiar companies + plain metrics | Richer fundamentals & sector nuance |
+| Sheets + Colab filters | SQL, dashboards, modeling tracks |
+| Curated offline snapshots | Fuller ETL / warehouse thinking |
+| One honest caveat | Deeper evaluation & storytelling |
 
 ---
 
 ## Sign-off (packet version)
 
-Prepared for UPSkill 1S2627 Applicants Workshop · Event Head: Galvin M. Gonzales · Draft date: September 6, 2026  
+Prepared for UPSkill 1S2627 Applicants Workshop · Event Head & Speaker: Galvin M. Gonzales · Updated: September 6, 2026  

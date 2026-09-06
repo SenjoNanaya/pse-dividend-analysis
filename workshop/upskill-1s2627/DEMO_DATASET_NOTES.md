@@ -1,30 +1,31 @@
-# UPSkill 1S2627 — Demo dataset notes
+# Demo dataset notes — beginner / real-world appreciation
 
-Use these columns for the **PM Python** starter CSV and (optionally) the messy AM spreadsheet.
+## Goal
 
-## Suggested schema
+Applicants should recognize most rows without a finance background. Metrics stay plain.
 
-| Column | Type | Teaching use |
-|--------|------|--------------|
-| `ticker` | string | Identity |
-| `company_name` | string | Split / clean demos |
-| `sector` | string | Filter practice |
-| `subsector` | string | Banks vs industrial framing |
-| `last_price` | float | Charting |
-| `div_yield` | float / blank | Missingness + screen threshold |
-| `roic` | float / blank | Industrial return metric |
-| `capital_return` | float / blank | Bank-friendly equity return (optional column) |
-| `debt_to_equity` | float / blank | Second screen condition |
-| `info_incomplete` | 0/1 | Data-quality flag |
-| `fiscal_years_present` | int | Completeness story |
+## Schema
 
-## Generation tips
+| Column | Teaching use |
+|--------|----------------|
+| `ticker` | Market shorthand (SM, JFC, BDO…) |
+| `company_name` | Formal name |
+| `familiar_as` | “Why I know this” blurb |
+| `sector` | Filter practice |
+| `last_price` | Charting / sorting |
+| `div_yield_pct` | Main beginner metric (already in %) |
+| `debt_to_equity` | Optional second filter; blank for banks on purpose |
+| `data_complete` | `yes` / `no` — missing-data hygiene |
+| `notes` | Speaker prompts (high yield skepticism, etc.) |
 
-- Include ~25–40 rows so filters feel meaningful but share-outs stay short.
-- Intentionally leave ~15–20% blanks in ratio columns.
-- Include 2–3 absurd outliers (e.g., yield > 100%) so speakers can teach “question the number.”
-- Mark a few `subsector = Banks` rows; mention capital return vs ROIC only as a short aside.
+## Curation tips
 
-## Disclaimer blurb (put on slide 1 of PM)
+- Prefer household names over obscure tickers.  
+- Keep ~18–25 rows.  
+- Include 3 incomplete rows and 1–2 “suspiciously high yield” rows.  
+- If refreshing from the live warehouse, **round** and **date-stamp** the snapshot; never imply trading advice.  
+- Banks: leave `debt_to_equity` blank and explain in one sentence why industrial debt shortcuts mislead.
 
-Educational workshop dataset. Not investment advice. Figures may be synthetic or simplified for teaching.
+## Slide / notebook disclaimer (required)
+
+Educational workshop dataset for UPLB Data Science Guild applicants. Not investment advice. Figures are a simplified snapshot for teaching and may be rounded or outdated. Not affiliated with the PSE.

@@ -7,7 +7,7 @@ College, Laguna 4031
 | Field | Details |
 |-------|---------|
 | **Event Title** | UPSkill |
-| **Theme** | From Filings to Insight: Hands-on Data Science with Real Market Data |
+| **Theme** | Companies You Know, Data You Can Use: Beginner Data Science with Real PSE Names |
 | **Nature of Event** | Educational and Informative |
 | **Date & Time** | September 17, 2026 · AM session 9:30 AM–12:35 PM · PM session 2:30 PM–6:00 PM |
 | **Type of Activity** | External Workshop (Applicants Workshop) |
@@ -18,91 +18,97 @@ College, Laguna 4031
 | Role | Name / Assignment |
 |------|-------------------|
 | **Event Head** | Galvin M. Gonzales |
+| **Speaker (AM & PM)** | Galvin M. Gonzales |
 | **EIC** | [TBD] |
-| **Program & Technical Committee (PTC)** | [TBD] |
+| **Program & Technical Committee (PTC)** | [TBD] — owns tech, ingress, floater support so speaker can stay on content |
 | **Documentation & Communications Committee (DCC)** | [TBD] |
+| **Hosts** | [TBD] — MC / transitions; not the speaker |
 
 ## III. Objectives
 
-1. To encourage applicants to know more about data science — what it is, what problems it solves, and how it shows up in real Philippine datasets.
-2. To give applicants a glimpse of what workshops to look forward to in the organization, using a pipeline-shaped activity (collect → clean → analyze → communicate) rather than isolated tool demos.
-3. To give hands-on experience on a chosen data science topic: wrangling tabular data and building a small, interpretable stock screen from prepared PSE-style financial metrics.
+1. To encourage applicants — especially absolute beginners — to know more about data science using **companies they already recognize** from everyday Philippine life (e.g. SM, Jollibee, BDO, Globe, Meralco).
+2. To give applicants a glimpse of Guild workshops through a simple pipeline story: **clean a table → ask a question → filter an answer**, without requiring prior coding experience.
+3. To give hands-on experience with **real-world (offline) market snapshots**: spreadsheet hygiene in the morning, and a guided Google Colab mini-screen in the afternoon.
 
 ## IV. Work Distribution / Committee Task
 
 | Committee | Pre-Event | During the Event | Post-Event |
 |-----------|-----------|------------------|------------|
-| **Program & Technical Committee** | Tech set-up; back-up tech; host assignment; venue reservation / Zoom links; script; evaluation forms; attendance forms | Tech support; host facilitation; attendance; evaluation collection | Tech tear-down; venue clean-up (if onsite) |
-| **Documentation & Communications Committee** | Certificate of Appreciation for speakers; speaker info/credentials; PPT packaging; optional food & certificate holder (onsite) | Evaluation forms; food for speakers; token for speakers | Financial report; photo/docs archive; certificate release follow-through |
+| **Program & Technical Committee** | Tech set-up; back-up tech; host assignment; venue / Zoom; script; evaluation & attendance forms; Colab access check; floater assignment | Tech support; hosting support; attendance; catch raised hands / chat so speaker is not dual-tasking logistics | Tech tear-down; venue clean-up (if onsite) |
+| **Documentation & Communications Committee** | Speaker credentials sheet; PPT packaging; certificate of appreciation (still prepared even if speaker is Event Head — optional token per org norms); optional food / holders (onsite) | Evaluation forms; documentation | Financial report; photo/docs archive |
+
+**Dual-role note:** Because the Event Head is also the speaker, PTC + Hosts must fully own logistics and MCing. The speaker’s job during the event is teaching and Q&A only.
 
 ## V. Program Preparation Timeline
 
 | Activity | Date | In-Charge | Status |
 |----------|------|-----------|--------|
-| Finish Proposal | Sep 7, 2026 | Event Head | In progress |
+| Finish Proposal | Sep 7, 2026 | Event Head / Speaker | In progress |
 | Present Proposal to Executive Committee | Sep 8, 2026 | Event Head | Not started |
-| Speakers Meeting | Sep 10, 2026 | Event Head, EIC | Not started |
-| Create info sheet / credentials of speakers | Sep 11, 2026 | DCC | Not started |
-| Speakers Draft Presentation | Sep 10, 2026 | Speakers | Not started |
-| Review Presentation | Sep 11, 2026 | PTC | Not started |
-| Practice of Speakers with PTC | Sep 13, 2026 | Speaker, PTC | Not started |
-| Powerpoint Presentation (deadline) | Sep 13, 2026 | DCC | Not started |
+| Align Hosts + PTC on dual-role run-of-show | Sep 9, 2026 | Event Head, EIC, PTC | Not started |
+| Lock beginner dataset (familiar PSE tickers, simplified columns) | Sep 10, 2026 | Speaker | Not started |
+| Create info sheet / credentials of speaker | Sep 11, 2026 | DCC | Not started |
+| Speaker Draft Presentation (AM + PM) | Sep 10–12, 2026 | Speaker | Not started |
+| Review Presentation (beginner clarity pass) | Sep 12, 2026 | PTC / EIC | Not started |
+| Practice with PTC (treat exec as applicants) | Sep 13, 2026 | Speaker, PTC | Not started |
+| Powerpoint packaging (deadline) | Sep 13, 2026 | DCC | Not started |
 | Script (deadline) | Sep 13, 2026 | PTC | Not started |
-| Certificate for Speakers (tap MNC) | Sep 13, 2026 | DCC | Not started |
-| Attendance Forms (tap MNC for form banner) | Sep 14, 2026 | PTC | Not started |
+| Certificate materials (tap MNC) | Sep 13, 2026 | DCC | Not started |
+| Attendance Forms | Sep 14, 2026 | PTC | Not started |
 | Evaluation Forms | Sep 15, 2026 | DCC | Not started |
-| Dry Run with Speakers and Hosts (invite exec as “applicants”) | Sep 16, 2026 | EIC, Speaker, Head, PTC | Not started |
+| Publish Colab + Sheet links; send pre-read (5 mins) | Sep 15, 2026 | DCC, Speaker | Not started |
+| Dry Run with Hosts (invite exec as “applicants”) | Sep 16, 2026 | EIC, Speaker, Hosts, PTC | Not started |
 
 **Notes / rationale for schedule**  
-Single-day AM+PM format matches the Applicants Workshop tradition of giving breadth (accessible foundations) then depth (Python hands-on). Dry run is the day before the event so venue/Zoom and tool install issues are caught early.
+Beginner-friendly + real tickers means the *dataset and vocabulary* need an early lock, not only the slides. Dry run should include at least one person who has never used Colab.
 
 ## VI. Program Flow
 
 **Topics**  
-[1] AM — Spreadsheet Foundations: Cleaning & Exploring Financial Tables  
-[2] PM — Python Data Camp: From CSV to a Mini Stock Screen  
+[1] AM — Spreadsheet Foundations with Companies You Know  
+[2] PM — First Python Screen in Google Colab (no local install required)  
 
 **Date:** September 17, 2026 (2 parts)  
 **Mode:** Onsite (preferred) with Zoom backup  
+**Speaker:** Galvin M. Gonzales (both sessions)
 
-### AM Workshop — Spreadsheet Foundations with [Speaker TBD]
+### AM Workshop — Spreadsheet Foundations with Galvin M. Gonzales
 
 | Time | Duration | Activity | In-Charge |
 |------|----------|----------|-----------|
 | 9:30–9:45 | 15 mins | Ingress · Assembly of PTC / tech body | PTC |
-| 9:45–10:00 | 15 mins | Assembly of Applicants | EIC, Head |
-| 10:00–10:10 | 10 mins | Introduction of Hosts · why an applicants workshop · importance of the workshop | Hosts |
+| 9:45–10:00 | 15 mins | Assembly of Applicants | EIC, Hosts |
+| 10:00–10:10 | 10 mins | Introduction of Hosts · why an applicants workshop | Hosts |
 | 10:10–10:15 | 5 mins | Opening Remarks | EIC |
-| 10:15–10:20 | 5 mins | Introduction to Speaker (credentials) | Hosts |
-| 10:20–10:30 | 10 mins | Introduction to Data Science & the day’s pipeline story | Speaker |
-| 10:30–11:20 | 50 mins | Spreadsheet Foundations proper (interface, clean, formulas, charts) | Speaker |
-| 11:20–11:30 | 10 mins | Q&A (with Hosts) | Hosts, Speaker |
-| 11:30–12:20 | 50 mins | Guided activity: clean a messy financial extract → summary table + chart | Speaker, PTC |
-| 12:20–12:30 | 10 mins | Awarding of Certificate to Speaker | Hosts, Speakers |
-| 12:30–12:35 | 5 mins | Closing of 1st part · PM preview & tool-install reminder | Hosts |
+| 10:15–10:20 | 5 mins | Introduction to Speaker | Hosts |
+| 10:20–10:35 | 15 mins | Soft landing: What is data science? Why these companies? Vocabulary card | Speaker |
+| 10:35–11:15 | 40 mins | Sheets proper (interface, sort/filter, format, simple formulas) — follow-along | Speaker |
+| 11:15–11:25 | 10 mins | Q&A | Hosts, Speaker |
+| 11:25–12:15 | 50 mins | Guided activity: clean familiar-ticker table → one chart + one sentence insight | Speaker, PTC floater |
+| 12:15–12:25 | 10 mins | Certificate / appreciation moment | Hosts |
+| 12:25–12:35 | 10 mins | Close AM · Colab link reminder · “same companies after lunch” | Hosts, Speaker |
 
-### PM Workshop — Python Mini Stock Screen with [Speaker TBD]
+### PM Workshop — Colab Mini Screen with Galvin M. Gonzales
 
 | Time | Duration | Activity | In-Charge |
 |------|----------|----------|-----------|
 | 2:30–2:45 | 15 mins | Ingress · Assembly of PTC / tech body | PTC |
-| 2:45–3:00 | 15 mins | Assembly of Applicants | EIC, Head |
-| 3:00–3:10 | 10 mins | Hosts welcome-back · check energy / AM takeaways · readiness for Python | Hosts |
-| 3:10–3:15 | 5 mins | Introduction to Speaker (credentials) | Hosts |
-| 3:15–3:30 | 15 mins | Discussion Proper: Jupyter + Pandas for tabular insight | Speaker |
-| 3:30–4:20 | 50 mins | Hands-on: load prepared company metrics CSV · clean · compute simple screens | Speaker |
-| 4:20–4:30 | 10 mins | Q&A (with Hosts) | Hosts, Speaker |
-| 4:30–4:50 | 20 mins | Activity: applicants apply their own screen thresholds | Speaker, PTC |
-| 4:50–5:30 | 40 mins | Short presentations / share-outs of applicant screens | Applicants, Hosts |
-| 5:30–5:40 | 10 mins | Q&A | Head, Speakers |
-| 5:40–5:45 | 5 mins | Awarding of Certificate to Speaker | Hosts, Speakers |
-| 5:45–5:55 | 10 mins | Closing Remarks | Head |
-| 5:55–6:00 | 5 mins | Closing of Hosts | Hosts |
+| 2:45–3:00 | 15 mins | Assembly of Applicants · Colab open-check | EIC, Hosts, PTC |
+| 3:00–3:10 | 10 mins | Hosts welcome-back · pair up optional | Hosts |
+| 3:10–3:15 | 5 mins | Re-introduce speaker / PM goal in one sentence | Hosts |
+| 3:15–3:35 | 20 mins | Colab + Pandas gentle intro (run cell, read table, count blanks) | Speaker |
+| 3:35–4:20 | 45 mins | Follow-along: filter familiar companies by yield + completeness | Speaker |
+| 4:20–4:30 | 10 mins | Q&A | Hosts, Speaker |
+| 4:30–5:00 | 30 mins | Activity: pick your own simple rule; PTC helps stuck pairs | Speaker, PTC |
+| 5:00–5:30 | 30 mins | Optional 30–60s share-outs (not required) | Hosts |
+| 5:30–5:40 | 10 mins | “What’s next in the Guild” teaser (pipeline glimpse, no deep dive) | Speaker |
+| 5:40–5:50 | 10 mins | Closing Remarks | Event Head / Speaker |
+| 5:50–6:00 | 10 mins | Hosts closing · evaluation forms | Hosts |
 
 ---
 
 **Created By:**  
-Galvin M. Gonzales · Event Head · September 6, 2026  
+Galvin M. Gonzales · Event Head & Speaker · September 6, 2026  
 
 **Noted By:**  
 ________________________ · Executive-in-Charge · Date  
