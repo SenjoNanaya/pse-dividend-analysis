@@ -1,0 +1,27 @@
+ticker,company_name,sector,subsector,last_price,div_yield,roic,capital_return,debt_to_equity,info_incomplete,fiscal_years_present
+AAA,Alpha Agri Inc,Industrial,Food Manufacturing,12.50,0.042,0.11,,0.35,0,3
+BBB,Beta Bank Corp,Financials,Banks,85.00,0.031,,0.09,,1,2
+CCC,Cedar Cement Co,Industrial,Construction Materials,28.40,0.055,0.08,,0.90,0,3
+DDD,Delta Digits PLC,Services,Information Technology,6.10,,0.15,,0.20,1,1
+EEE,Echo Energy PH,Mining,Oil,3.25,0.120,0.02,,1.80,0,3
+FFF,Forge Foods Corp,Industrial,Food Manufacturing,45.00,0.028,0.13,,0.40,0,4
+GGG,Gulf Holdings Inc,Holding Firms,Holdings,18.75,,0.05,,0.55,1,2
+HHH,Harbor Port Svcs,Services,Transportation,22.10,0.036,0.09,,0.70,0,3
+III,Iris Insurance Co,Financials,Insurance,40.00,0.022,,0.07,,1,2
+JJJ,Jade Jewel Retail,Services,Retail,9.80,0.015,0.18,,0.25,0,3
+KKK,Kite Power REIT,Property,REIT,33.50,0.065,0.06,,0.80,0,3
+LLL,Lumen Logistics,Services,Transportation,14.20,,0.04,,1.20,1,1
+MMM,Mango Media Inc,Services,Media,7.45,0.010,0.12,,0.15,0,3
+NNN,Nova Nickel Mine,Mining,Mining,2.05,0.250,-0.03,,2.50,0,2
+OOO,Orchid Telecom,Services,Telecommunications,120.00,0.048,0.10,,0.60,0,4
+PPP,Pacific Plastics,Industrial,Chemicals,16.30,0.033,0.07,,0.45,0,3
+QQQ,Quorum Bank,Financials,Banks,62.50,0.040,,0.11,,0,3
+RRR,Ridge Realty Dev,Property,Property,25.00,,0.03,,1.40,1,2
+SSS,Summit Sugar Mill,Industrial,Food Manufacturing,11.10,0.070,0.09,,0.50,0,3
+TTT,Tide Trading Co,Services,Retail,5.55,0.005,0.21,,0.10,0,3
+UUU,Umbra Utilities,Industrial,Electricity,38.90,0.052,0.08,,0.95,0,4
+VVV,Vista Ventures HF,Holding Firms,Holdings,9.20,,0.01,,0.30,1,1
+WWW,Willow Waterworks,Industrial,Water Utilities,27.60,0.044,0.06,,0.75,0,3
+XXX,Xenon Export Inc,Industrial,Manufacturing,19.40,0.019,0.14,,0.22,0,3
+YYY,Yellow Yarn Textiles,Industrial,Manufacturing,4.80,1.150,0.16,,0.18,0,2
+ZZZ,Zenith Zinc Corp,Mining,Mining,1.75,,-0.08,,3.10,1,1
