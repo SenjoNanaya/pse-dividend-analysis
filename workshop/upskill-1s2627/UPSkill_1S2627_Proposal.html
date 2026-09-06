@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>UPSkill 1S2627 Proposal — Applicants Workshop</title>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #444;
+      --line: #222;
+      --head: #0b3d5c;
+      --soft: #f4f7fa;
+      --accent: #0b3d5c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      font: 12pt/1.45 "Times New Roman", Times, serif;
+      background: #e8ecf0;
+    }
+    .page {
+      max-width: 8.5in;
+      margin: 24px auto;
+      padding: 0.75in;
+      background: #fff;
+      box-shadow: 0 1px 8px rgba(0,0,0,.12);
+    }
+    header {
+      text-align: center;
+      margin-bottom: 1.25rem;
+      border-bottom: 2px solid var(--head);
+      padding-bottom: .75rem;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 16pt;
+      letter-spacing: .02em;
+      color: var(--head);
+      text-transform: uppercase;
+    }
+    header p {
+      margin: .15rem 0 0;
+      color: var(--muted);
+      font-size: 11pt;
+    }
+    h2 {
+      margin: 1.35rem 0 .55rem;
+      font-size: 12.5pt;
+      color: var(--head);
+      border-bottom: 1px solid #c5d0da;
+      padding-bottom: .2rem;
+    }
+    h3 {
+      margin: 1rem 0 .4rem;
+      font-size: 11.5pt;
+      color: var(--ink);
+    }
+    p, li { font-size: 11pt; }
+    .note {
+      background: var(--soft);
+      border-left: 3px solid var(--accent);
+      padding: .55rem .75rem;
+      margin: .6rem 0 1rem;
+      font-size: 10.5pt;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: .4rem 0 1rem;
+      font-size: 10.5pt;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: .35rem .45rem;
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      background: var(--soft);
+      font-weight: 700;
+    }
+    .meta td:nth-child(odd) {
+      width: 18%;
+      font-weight: 700;
+      background: #fafbfc;
+    }
+    .meta td:nth-child(even) { width: 32%; }
+    .flow td:first-child { white-space: nowrap; width: 16%; }
+    .flow td:nth-child(2) { width: 12%; white-space: nowrap; }
+    .flow td:nth-child(4) { width: 18%; }
+    ul { margin: .3rem 0 .8rem 1.2rem; padding: 0; }
+    .sign {
+      margin-top: 1.75rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem 2rem;
+    }
+    .sign .block { min-height: 4.2rem; }
+    .sign .label { font-weight: 700; margin-bottom: .8rem; }
+    .sign .line {
+      border-top: 1px solid #333;
+      margin-top: 2.2rem;
+      padding-top: .25rem;
+      font-size: 10pt;
+    }
+    .muted { color: var(--muted); font-size: 10pt; }
+    @media print {
+      body { background: #fff; }
+      .page {
+        margin: 0;
+        padding: .6in;
+        box-shadow: none;
+        max-width: none;
+      }
+      h2 { break-after: avoid; }
+      table { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <h1>UPLB Data Science Guild</h1>
+      <p>University of the Philippines Los Baños</p>
+      <p>College, Laguna 4031</p>
+    </header>
+
+    <h2>I. Event Details</h2>
+    <table class="meta">
+      <tr>
+        <td>Event Title</td>
+        <td>UPSkill</td>
+        <td>Theme</td>
+        <td>Companies You Know, Data You Can Use: Beginner Data Science with Real PSE Names</td>
+      </tr>
+      <tr>
+        <td>Nature of Event</td>
+        <td>Educational and Informative</td>
+        <td>Date &amp; Time</td>
+        <td>September 17, 2026<br />Single session · ~3 hours<br /><span class="muted">Suggested block: 1:00–4:00 PM (final call TBD)</span></td>
+      </tr>
+      <tr>
+        <td>Type of Activity</td>
+        <td>External Workshop<br />(Applicants Workshop)</td>
+        <td>Venue</td>
+        <td>1st Option: [TBD – UPLB onsite]<br />2nd Option: Zoom</td>
+      </tr>
+    </table>
+
+    <h2>II. Event Team</h2>
+    <table class="meta">
+      <tr>
+        <td>Event Head</td>
+        <td>Galvin M. Gonzales</td>
+        <td>Speaker</td>
+        <td>Galvin M. Gonzales</td>
+      </tr>
+      <tr>
+        <td>EIC</td>
+        <td>[TBD]</td>
+        <td>Hosts</td>
+        <td>[TBD] — MC / transitions (not the speaker)</td>
+      </tr>
+      <tr>
+        <td>Program &amp; Technical Committee</td>
+        <td colspan="3">[TBD] — tech, ingress, floater support so speaker stays on content</td>
+      </tr>
+      <tr>
+        <td>Documentation &amp; Communications Committee</td>
+        <td colspan="3">[TBD]</td>
+      </tr>
+    </table>
+    <p class="note"><strong>Dual-role note:</strong> Because the Event Head is also the speaker, PTC + Hosts fully own logistics and MCing. During the event, the speaker only teaches and answers content questions.</p>
+
+    <h2>III. Objectives</h2>
+    <ol>
+      <li>To encourage applicants — especially absolute beginners — to know more about data science using <strong>companies they already recognize</strong> (e.g. SM, Jollibee, BDO, Globe, Meralco).</li>
+      <li>To give applicants a glimpse of Guild workshops through a simple pipeline story: <strong>clean a table → ask a question → filter an answer</strong>, without requiring prior coding experience.</li>
+      <li>To give hands-on experience with a <strong>real-world (offline) PSE snapshot</strong> in one cohesive ~3-hour session: spreadsheet foundations, then a short guided Colab mini-screen on the same familiar companies.</li>
+    </ol>
+
+    <h2>IV. Work Distribution / Committee Task</h2>
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th>Pre-Event</th>
+          <th>During the Event</th>
+          <th>Post-Event</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <th>Program &amp; Technical Committee</th>
+          <td>Tech set-up; back-up tech; host assignment; venue / Zoom; script; attendance &amp; evaluation forms; Colab access check; floater assignment</td>
+          <td>Tech support; hosting support; attendance; catch raised hands / chat so speaker is not dual-tasking logistics</td>
+          <td>Tech tear-down; venue clean-up (if onsite)</td>
+        </tr>
+        <tr>
+          <th>Documentation &amp; Communications Committee</th>
+          <td>Speaker credentials sheet; PPT packaging; certificate of appreciation (still prepared even if speaker is Event Head); optional food / holders (onsite)</td>
+          <td>Evaluation forms; documentation</td>
+          <td>Financial report; photo / docs archive</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>V. Program Preparation Timeline</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Activity</th>
+          <th>Date</th>
+          <th>In-Charge</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Finish Proposal</td>
+          <td>Sep 7, 2026</td>
+          <td>Event Head / Speaker</td>
+          <td>In progress</td>
+        </tr>
+        <tr>
+          <td>Present Proposal to Executive Committee</td>
+          <td>Sep 8, 2026</td>
+          <td>Event Head</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Align Hosts + PTC on dual-role run-of-show</td>
+          <td>Sep 9, 2026</td>
+          <td>Event Head, EIC, PTC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Lock beginner dataset (familiar PSE tickers, simplified columns)</td>
+          <td>Sep 10, 2026</td>
+          <td>Speaker</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Create info sheet / credentials of speaker</td>
+          <td>Sep 11, 2026</td>
+          <td>DCC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Speaker Draft Presentation (single 3-hour arc)</td>
+          <td>Sep 10–12, 2026</td>
+          <td>Speaker</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Review Presentation (beginner clarity pass)</td>
+          <td>Sep 12, 2026</td>
+          <td>PTC / EIC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Practice with PTC (treat exec as applicants)</td>
+          <td>Sep 13, 2026</td>
+          <td>Speaker, PTC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Powerpoint packaging (deadline)</td>
+          <td>Sep 13, 2026</td>
+          <td>DCC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Script (deadline)</td>
+          <td>Sep 13, 2026</td>
+          <td>PTC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Certificate materials (tap MNC)</td>
+          <td>Sep 13, 2026</td>
+          <td>DCC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Attendance Forms</td>
+          <td>Sep 14, 2026</td>
+          <td>PTC</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Evaluation Forms + publish Sheet / Colab links</td>
+          <td>Sep 15, 2026</td>
+          <td>DCC, Speaker</td>
+          <td>Not started</td>
+        </tr>
+        <tr>
+          <td>Dry Run with Hosts (invite exec as “applicants”)</td>
+          <td>Sep 16, 2026</td>
+          <td>EIC, Speaker, Hosts, PTC</td>
+          <td>Not started</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note"><strong>Notes:</strong> One ~3-hour session keeps setup and energy management simpler than a split AM/PM day. Lock the familiar-ticker dataset and vocabulary early. Dry run should include at least one person who has never used Colab.</p>
+
+    <h2>VI. Program Flow</h2>
+    <p><strong>Format:</strong> Single continuous workshop (~3 hours), not separate AM/PM events.</p>
+    <p><strong>Topic arc:</strong> Spreadsheet foundations with familiar PSE names → short guided Colab mini-screen on the same dataset.</p>
+    <p><strong>Date:</strong> September 17, 2026 &nbsp;·&nbsp; <strong>Mode:</strong> Onsite preferred, Zoom backup &nbsp;·&nbsp; <strong>Speaker:</strong> Galvin M. Gonzales</p>
+
+    <h3>Single Session — Suggested 1:00–4:00 PM block (adjust as needed)</h3>
+    <table class="flow">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Duration</th>
+          <th>Activity</th>
+          <th>In-Charge</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1:00–1:10</td>
+          <td>10 mins</td>
+          <td>Ingress · Assembly of PTC / tech body · room / Zoom check</td>
+          <td>PTC</td>
+        </tr>
+        <tr>
+          <td>1:10–1:20</td>
+          <td>10 mins</td>
+          <td>Assembly of Applicants</td>
+          <td>EIC, Hosts</td>
+        </tr>
+        <tr>
+          <td>1:20–1:30</td>
+          <td>10 mins</td>
+          <td>Hosts intro · why an applicants workshop · importance of the session</td>
+          <td>Hosts</td>
+        </tr>
+        <tr>
+          <td>1:30–1:35</td>
+          <td>5 mins</td>
+          <td>Opening Remarks</td>
+          <td>EIC</td>
+        </tr>
+        <tr>
+          <td>1:35–1:40</td>
+          <td>5 mins</td>
+          <td>Introduction to Speaker</td>
+          <td>Hosts</td>
+        </tr>
+        <tr>
+          <td>1:40–1:55</td>
+          <td>15 mins</td>
+          <td>Soft landing: What is data science? Why these companies? Vocabulary card (ticker, yield, missing data, filter)</td>
+          <td>Speaker</td>
+        </tr>
+        <tr>
+          <td>1:55–2:40</td>
+          <td>45 mins</td>
+          <td>Sheets proper (interface, sort/filter, format, simple formulas) — follow-along with familiar PSE names</td>
+          <td>Speaker</td>
+        </tr>
+        <tr>
+          <td>2:40–3:05</td>
+          <td>25 mins</td>
+          <td>Guided Sheets activity: clean familiar-ticker table → one chart + one careful insight</td>
+          <td>Speaker, PTC floater</td>
+        </tr>
+        <tr>
+          <td>3:05–3:15</td>
+          <td>10 mins</td>
+          <td>Short break · Colab open-check</td>
+          <td>Hosts, PTC</td>
+        </tr>
+        <tr>
+          <td>3:15–3:45</td>
+          <td>30 mins</td>
+          <td>Colab mini-screen (no local install): load same companies, count blanks, apply a simple yield + completeness filter</td>
+          <td>Speaker</td>
+        </tr>
+        <tr>
+          <td>3:45–3:50</td>
+          <td>5 mins</td>
+          <td>Optional 30–60s share-outs (not required) · “what’s next in the Guild” teaser</td>
+          <td>Hosts, Speaker</td>
+        </tr>
+        <tr>
+          <td>3:50–4:00</td>
+          <td>10 mins</td>
+          <td>Closing Remarks · appreciation moment · evaluation forms</td>
+          <td>Event Head / Speaker, Hosts</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="note">
+      <strong>Beginner contract for the 3-hour session:</strong>
+      no prior coding required; Google Colab for the short Python block; plain metrics only (price, dividend yield %, completeness);
+      pair-up allowed; completed fallback Sheet/notebook ready if a laptop fails; educational use only — not investment advice.
+    </p>
+
+    <div class="sign">
+      <div class="block">
+        <div class="label">Created By:</div>
+        <div>Galvin M. Gonzales</div>
+        <div class="line">Event Head &amp; Speaker &nbsp;&nbsp;&nbsp; Date: September 6, 2026</div>
+      </div>
+      <div class="block">
+        <div class="label">Noted By:</div>
+        <div class="line">Executive-in-Charge &nbsp;&nbsp;&nbsp; Date</div>
+      </div>
+      <div class="block">
+        <div class="label">Approved By:</div>
+        <div class="line">Head Chairperson &nbsp;&nbsp;&nbsp; Date</div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
