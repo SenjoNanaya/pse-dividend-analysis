@@ -13,6 +13,7 @@ Draft proposal package for the UPLB Data Science Guild **Applicants Workshop** (
 | [APPLICANTS_WORKSHOP.md](./APPLICANTS_WORKSHOP.md) | Applicants-facing packet |
 | [BEGINNER_SPEAKER_NOTES.md](./BEGINNER_SPEAKER_NOTES.md) | Dual-role + beginner pedagogy guardrails |
 | [DEMO_DATASET_NOTES.md](./DEMO_DATASET_NOTES.md) | Schema & curation rules |
+| [UPSkill_1S2627_Colab.ipynb](./UPSkill_1S2627_Colab.ipynb) | Part B Colab notebook (load, missingness, filter, chart) |
 | [resources/demo_company_metrics.csv](./resources/demo_company_metrics.csv) | Familiar-ticker starter dataset |
 | [pdf/](./pdf/) | Printable PDFs |
 | [generate_pdfs.py](./generate_pdfs.py) | Regenerate PDFs (`pip install fpdf2 && python generate_pdfs.py`) |
