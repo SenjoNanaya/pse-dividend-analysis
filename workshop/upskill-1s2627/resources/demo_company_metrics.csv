@@ -1,0 +1,21 @@
+ticker,company_name,familiar_as,sector,last_price,div_yield_pct,debt_to_equity,data_complete,notes
+SM,SM Investments Corporation,SM malls / retail conglomerate,Holding Firms,850.00,1.8,0.45,yes,
+JFC,Jollibee Foods Corporation,Jollibee,Industrial,230.00,1.2,0.80,yes,
+BDO,BDO Unibank Inc,BDO bank,Financials,145.00,3.1,,yes,Bank - debt ratio left blank on purpose
+BPI,Bank of the Philippine Islands,BPI bank,Financials,120.00,2.8,,yes,Bank - debt ratio left blank on purpose
+GLO,Globe Telecom Inc,Globe,Services,2100.00,5.5,1.10,yes,
+TEL,PLDT Inc,PLDT,Services,1450.00,6.2,0.95,yes,
+MER,Manila Electric Company,Meralco,Industrial,380.00,4.0,0.70,yes,
+AC,Ayala Corporation,Ayala group,Holding Firms,620.00,1.5,0.55,yes,
+URC,Universal Robina Corporation,URC snacks / beverages,Industrial,110.00,2.2,0.40,yes,
+PGOLD,Puregold Price Club Inc,Puregold,Services,28.50,2.0,0.35,yes,
+ALI,Ayala Land Inc,Ayala Land,Property,32.00,1.0,0.85,yes,
+MPI,Metro Pacific Investments Corp,Metro Pacific,Holding Firms,4.50,,1.20,no,Missing yield - practice row
+CNVRG,Converge Information and Communications Technology Solutions Inc,Converge fiber,Services,12.80,,0.90,no,Missing yield - practice row
+DMC,DMCI Holdings Inc,DMCI,Holding Firms,11.20,8.5,0.30,yes,High yield - discuss carefully
+SCC,Semirara Mining and Power Corp,Semirara,Mining,30.00,12.0,0.25,yes,Very high yield - teach skepticism
+BLOOM,Bloomberry Resorts Corporation,Solaire,Services,9.10,0.0,1.50,yes,
+WLCON,Wilcon Depot Inc,Wilcon Depot,Services,18.40,1.1,0.20,yes,
+MONDE,Monde Nissin Corporation,Monde Nissin,Industrial,9.80,1.4,0.50,yes,
+ICT,International Container Terminal Services Inc,ICTSI ports,Services,350.00,2.5,0.75,yes,
+RRHI,Robinsons Retail Holdings Inc,Robinsons Retail,Services,40.00,,0.60,no,Incomplete on purpose
